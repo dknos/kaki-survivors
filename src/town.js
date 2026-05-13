@@ -16,6 +16,7 @@ import * as THREE from 'three';
 import { state } from './state.js';
 import { CHARACTERS } from './config.js';
 import { getMeta, setOption } from './meta.js';
+import { initChatBindings, tickBubbles } from './chatBubble.js';
 
 const PLAZA_R = 18;
 const FENCE_R = 22;
@@ -340,6 +341,7 @@ export function buildTown(scene) {
     `;
     document.body.appendChild(_promptEl);
     window.addEventListener('keydown', _onKeyDown);
+    initChatBindings();
   }
 
   g.visible = false;
@@ -403,6 +405,9 @@ export function tickTown(dt) {
     if (_promptEl && _promptEl.style.display !== 'none') _promptEl.style.display = 'none';
     return;
   }
+
+  // Position + fade speech bubbles each frame (Palace-style chat).
+  tickBubbles();
 
   // Animate portal — gentle scale pulse + opacity sine
   const t = state.time.real;
