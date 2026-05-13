@@ -10,17 +10,21 @@ import { state } from '../state.js';
 import { damageEnemy, queryRadius } from '../enemies.js';
 import { tex } from '../particleTextures.js';
 import { BLOOM_LAYER } from '../postfx.js';
+import { cloneCached } from '../assets.js';
 
 // ── Shared geometries + materials (cached across all orbs for batching) ──
 const BUN_GEO    = new THREE.CylinderGeometry(0.30, 0.34, 0.16, 18);
 const TOP_BUN_GEO = new THREE.SphereGeometry(0.32, 18, 12, 0, Math.PI * 2, 0, Math.PI / 2); // dome
 const PATTY_GEO  = new THREE.CylinderGeometry(0.32, 0.32, 0.09, 18);
-const CHEESE_GEO = new THREE.BoxGeometry(0.74, 0.04, 0.74);
+// Cheese now sits INSIDE the bun outline (slightly smaller than patty) so
+// the burger silhouette stays round. No emissive — bloom was making the
+// flat square dominate and pulse blue-white. Keeps a faint yellow tint only.
+const CHEESE_GEO = new THREE.BoxGeometry(0.58, 0.04, 0.58);
 const SEED_GEO   = new THREE.SphereGeometry(0.035, 6, 5);
 
 const BUN_MAT    = new THREE.MeshStandardMaterial({ color: 0xd99b54, roughness: 0.78, metalness: 0.0 });
 const PATTY_MAT  = new THREE.MeshStandardMaterial({ color: 0x3e1f0e, roughness: 0.85, metalness: 0.0 });
-const CHEESE_MAT = new THREE.MeshStandardMaterial({ color: 0xffc23a, emissive: 0x8a5a00, emissiveIntensity: 0.25, roughness: 0.6 });
+const CHEESE_MAT = new THREE.MeshStandardMaterial({ color: 0xffc23a, roughness: 0.7, metalness: 0.0 });
 const SEED_MAT   = new THREE.MeshStandardMaterial({ color: 0xf2e3b6, roughness: 0.7 });
 
 const GLOW_GEO = new THREE.PlaneGeometry(0.95, 0.95);
@@ -32,35 +36,28 @@ const GLOW_MAT = new THREE.MeshBasicMaterial({
 const HIT_RADIUS = 0.55;
 const _glowFlat = new THREE.Quaternion().setFromEuler(new THREE.Euler(-Math.PI / 2, 0, 0));
 
-function _makeBurger() {
+// Build a fallback burger from primitives if no GLB is provided.
+function _makeBurgerPrimitive() {
   const g = new THREE.Group();
-  // Bottom bun
   const bot = new THREE.Mesh(BUN_GEO, BUN_MAT);
   bot.position.y = 0.08;
   bot.castShadow = true;
   g.add(bot);
-  // Patty
   const patty = new THREE.Mesh(PATTY_GEO, PATTY_MAT);
   patty.position.y = 0.20;
   g.add(patty);
-  // Cheese — square slice, slightly rotated for that "draped" silhouette
   const cheese = new THREE.Mesh(CHEESE_GEO, CHEESE_MAT);
   cheese.position.y = 0.255;
   cheese.rotation.y = Math.PI / 6;
   g.add(cheese);
-  // Top bun dome
   const top = new THREE.Mesh(TOP_BUN_GEO, BUN_MAT);
   top.scale.set(1.0, 0.85, 1.0);
   top.position.y = 0.28;
   top.castShadow = true;
   g.add(top);
-  // Sesame seeds — 5 scattered on top
   const seedPositions = [
-    [0.00, 0.50, 0.00],
-    [0.16, 0.46, 0.04],
-    [-0.14, 0.46, -0.06],
-    [0.08, 0.47, -0.16],
-    [-0.10, 0.47, 0.14],
+    [0.00, 0.50, 0.00], [0.16, 0.46, 0.04], [-0.14, 0.46, -0.06],
+    [0.08, 0.47, -0.16], [-0.10, 0.47, 0.14],
   ];
   for (const [x, y, z] of seedPositions) {
     const s = new THREE.Mesh(SEED_GEO, SEED_MAT);
@@ -70,15 +67,49 @@ function _makeBurger() {
   return g;
 }
 
+// Auto-fit a cloned GLB to a target bounding-box height (in world units),
+// so any donated cheeseburger model — regardless of authored scale or pivot —
+// reads at the right size as an orbital. Centers on origin too.
+const TARGET_HEIGHT = 0.95;     // matches the primitive's silhouette
+function _normalizeBurgerGlb(root) {
+  const box = new THREE.Box3().setFromObject(root);
+  const size = new THREE.Vector3();
+  const center = new THREE.Vector3();
+  box.getSize(size);
+  box.getCenter(center);
+  const h = Math.max(0.001, size.y);
+  const k = TARGET_HEIGHT / h;
+  root.scale.multiplyScalar(k);
+  // Recompute center post-scale and shift so origin sits at the burger base.
+  root.position.x -= center.x * k;
+  root.position.y -= (center.y - size.y / 2) * k;
+  root.position.z -= center.z * k;
+  // Cast/receive shadows so the orbital looks grounded.
+  root.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+  return root;
+}
+
+// Try the GLB first; fall back to primitives if missing.
+function _makeBurger() {
+  const glb = cloneCached('burger');
+  if (glb) {
+    const wrap = new THREE.Group();
+    wrap.add(_normalizeBurgerGlb(glb));
+    return wrap;
+  }
+  return _makeBurgerPrimitive();
+}
+
 function spawnOrbs(level, inst) {
   const scene = state.scene;
   inst.orbs = [];
   for (let i = 0; i < level.count; i++) {
     const group = new THREE.Group();
-    // Burger stack
+    // Burger stack — stays on the default render layer. BLOOM_LAYER is for
+    // glowy emissives; putting the burger on it makes the bloom pass render
+    // each mesh in isolation against black, then additive-composite it back,
+    // which produced the ghostly "blue square" look the player flagged.
     const burger = _makeBurger();
-    burger.layers.enable(BLOOM_LAYER);
-    burger.traverse(o => { if (o.isMesh) o.layers.enable(BLOOM_LAYER); });
     group.add(burger);
     // Flat additive glow on ground
     const glow = new THREE.Mesh(GLOW_GEO, GLOW_MAT);

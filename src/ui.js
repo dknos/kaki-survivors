@@ -791,6 +791,18 @@ export function showDeathScreen() {
     statRow('Achievements',   `${achievementCount()} / ${ACHIEVEMENTS.length}`),
   ].join('');
 
+  // Stash the run summary so the town arrival toast can re-surface earnings.
+  window._kkLastRunSummary = {
+    coinsEarned:  summary.coinsEarned,
+    embersEarned: summary.embersEarned || 0,
+    kills:        state.run.kills,
+    time:         state.time.game,
+    victory:      !!state.victory,
+    unlockedHyper: !!summary.unlockedHyper,
+    unlockedEndless: !!summary.unlockedEndless,
+    unlockedCinder: !!summary.unlockedCinder,
+  };
+
   // Button row (RETRY in-place reset, plus hint)
   const btnRow = document.createElement('div');
   btnRow.style.cssText = 'display:flex; gap:18px; margin-top:8px;';
@@ -807,6 +819,20 @@ export function showDeathScreen() {
     letter-spacing: 0.32em;
     box-shadow: 0 1px 0 rgba(255,255,255,0.06) inset, 0 12px 28px rgba(0,0,0,0.5);`;
   btnRow.appendChild(retryBtn);
+
+  // Return-to-Town button — closes the run/town/upgrade loop without reload.
+  const townBtn = document.createElement('button');
+  townBtn.type = 'button';
+  townBtn.textContent = '🏘 Return to Town';
+  townBtn.style.cssText = `padding: 14px 28px; cursor: pointer;
+    background: linear-gradient(180deg, rgba(28,20,16,0.95), rgba(14,10,8,0.95));
+    border: 1px solid #c9b07a;
+    border-radius: 8px;
+    color: #c9b07a;
+    font-family: ${F.display}; font-size: 16px; font-weight: 700;
+    letter-spacing: 0.24em;
+    box-shadow: 0 1px 0 rgba(255,255,255,0.06) inset, 0 12px 28px rgba(0,0,0,0.5);`;
+  btnRow.appendChild(townBtn);
 
   const hint = document.createElement('div');
   hint.className = 'kk-death-hint';
@@ -913,8 +939,21 @@ export function showDeathScreen() {
     else location.reload();
   };
   retryBtn.addEventListener('click', (e) => { e.stopPropagation(); restart(); });
+
+  const goTown = () => {
+    if (_deathKeyHandler) window.removeEventListener('keydown', _deathKeyHandler);
+    _deathKeyHandler = null;
+    if (_deathScreen && _deathScreen.parentNode) _deathScreen.parentNode.removeChild(_deathScreen);
+    _deathScreen = null;
+    if (typeof window.kkReturnToTown === 'function') window.kkReturnToTown();
+    else if (typeof window.kkRestart === 'function') window.kkRestart();
+    else location.reload();
+  };
+  townBtn.addEventListener('click', (e) => { e.stopPropagation(); goTown(); });
+
   _deathKeyHandler = (e) => {
     if (e.code === 'KeyR' || e.key === 'r' || e.key === 'R' || e.code === 'Enter' || e.code === 'Space') restart();
+    else if (e.code === 'KeyT' || e.key === 't' || e.key === 'T') goTown();
   };
   window.addEventListener('keydown', _deathKeyHandler);
 }

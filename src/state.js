@@ -75,6 +75,14 @@ export const state = {
     armedAt: 120,      // game-time (sec) at which pylons first spawn
   },
 
+  // ── Cursed Bell (risk/reward enrage objective, see src/bells.js) ──
+  bells: {
+    list: [],
+    initialized: false,
+    target: 1,
+    armedAt: 180,      // game-time (sec) at which bell first spawns
+  },
+
   // ── Enemies ──
   enemies: {
     /** @type {Array<EnemyInstance>} */
@@ -240,6 +248,12 @@ export function resetState() {
     state.pylons.list.length = 0;
     state.pylons.respawnQueue.length = 0;
     state.pylons.initialized = false;
+  }
+  // Cursed-Bell bookkeeping — see src/bells.js
+  if (state.bells) {
+    for (const b of state.bells.list) { if (b.mesh && b.mesh.parent) b.mesh.parent.remove(b.mesh); }
+    state.bells.list.length = 0;
+    state.bells.initialized = false;
   }
   // Mode flags snapshot — main.js reads getMeta() and pushes here at run start
   state.modes = state.modes || {};

@@ -38,6 +38,7 @@ import { showYarnDart } from './yarndart.js';
 import { showTeaSteep } from './teasteep.js';
 import { initTotems, tickTotems, resetTotems } from './totems.js';
 import { initPylons, tickPylons, resetPylons } from './pylons.js';
+import { initBells, tickBells, resetBells } from './bells.js';
 
 // ── Bootstrap ─────────────────────────────────────────────────────────────────
 
@@ -142,6 +143,7 @@ async function boot() {
   initVFXBurst(scene);
   initTotems(scene);
   initPylons(scene);
+  initBells(scene);
   initChests(scene);
   initPickups(scene);
   initBossTelegraphs(scene);
@@ -225,10 +227,21 @@ async function boot() {
   // Expose restart for the death-screen RETRY button. Avoids a full page reload
   // (which throws away the prewarmed pools + cached GLBs).
   window.kkRestart = restartRun;
+  // After death, take the player to town instead of restarting the run.
+  // Same state cleanup, then enter the hub for shop/house/statues access.
+  window.kkReturnToTown = () => {
+    _teardownActiveRun();
+    _primeRunStart();        // hero is alive + statted up, ready for next gate-press
+    enterTown();              // sets state.mode='town', positions hero at gate
+    state._deathShown = false;
+    state.started = true;     // bypass start-screen idle render path
+    // Show an arrival toast surfacing what the run earned.
+    if (window._kkLastRunSummary) _showTownArrivalToast(window._kkLastRunSummary);
+  };
   window.__kkNextMiniBoss = secondsUntilNextMiniBoss;
 }
 
-function restartRun() {
+function _teardownActiveRun() {
   // Return active enemies to pools + hide them
   const active = state.enemies.active;
   for (let i = 0; i < active.length; i++) {
@@ -240,9 +253,9 @@ function restartRun() {
       if (e._tellRing.parent) e._tellRing.parent.remove(e._tellRing);
       e._tellRing = null;
     }
-    // Totems + pylons aren't pooled — unique geometries. Detach from scene;
+    // Totems, pylons, bells aren't pooled — unique geometries. Detach;
     // reset* functions clear their respective lists.
-    if (e.isTotem || e.isPylon) {
+    if (e.isTotem || e.isPylon || e.isBell) {
       if (e.mesh.parent) e.mesh.parent.remove(e.mesh);
       continue;
     }
@@ -274,30 +287,82 @@ function restartRun() {
   resetVFXBurst();
   resetTotems();
   resetPylons();
+  resetBells();
   resetBossTelegraphs();
   resetDestructibles();
   initSpawnDirector();
   _resetEvoAnnouncements();
   _resetSecretChecks();
+}
+
+function _primeRunStart() {
   // Rebuild hero mesh so a newly-picked character's placeholder tint applies.
   rebuildHero(state.scene);
   applyMetaUpgrades();
-
-  // Re-give the selected character's starter weapon
+  // Re-give the selected character's starter weapon (+ Cellar bonus levels)
   acquireWeapon(state.run.starterWeapon || 'orbitals');
   for (let i = 0; i < (state.run.cellarLv || 0); i++) acquireWeapon(state.run.starterWeapon || 'orbitals');
-
   // Restore hero visuals (death anim mutated opacity + scale)
   if (state.hero.mesh) {
     state.hero.mesh.traverse(o => {
       if (o.isMesh && o.material) {
         const mats = Array.isArray(o.material) ? o.material : [o.material];
-        for (const m of mats) {
-          if (m.opacity !== undefined) m.opacity = 1;
-        }
+        for (const m of mats) { if (m.opacity !== undefined) m.opacity = 1; }
       }
     });
   }
+}
+
+// Paper-styled arrival toast shown briefly after returning to town from a run.
+// Surfaces what the previous run earned so the upgrade decision is easy.
+function _showTownArrivalToast(s) {
+  // Reuse an existing toast slot if there is one (dismiss-replace pattern)
+  const old = document.getElementById('kk-town-arrival');
+  if (old && old.parentNode) old.parentNode.removeChild(old);
+  const div = document.createElement('div');
+  div.id = 'kk-town-arrival';
+  const lines = [];
+  if (s.victory) lines.push(`<div style="font-family:'Cinzel Decorative',serif;font-size:13px;letter-spacing:0.28em;color:#ffd24a;text-transform:uppercase;margin-bottom:4px;">★ Victory</div>`);
+  lines.push(`<div style="font-family:'Cinzel Decorative',serif;font-size:22px;font-weight:900;letter-spacing:0.12em;color:#231a14;">Welcome back to the village.</div>`);
+  lines.push(`<div style="font-family:'Inter',sans-serif;font-size:13px;color:#5a4838;margin-top:6px;letter-spacing:0.08em;">From that hunt:</div>`);
+  lines.push(`<div style="font-family:'JetBrains Mono',monospace;font-size:15px;color:#231a14;margin-top:4px;display:flex;gap:18px;justify-content:center;">
+    <span>+${s.coinsEarned} 🪙</span>
+    <span>+${s.embersEarned} 🔥</span>
+    <span>${s.kills} kills</span>
+    <span>${Math.floor(s.time/60)}:${String(Math.floor(s.time%60)).padStart(2,'0')}</span>
+  </div>`);
+  if (s.unlockedCinder) lines.push(`<div style="margin-top:8px;color:#ff7a3a;font-family:'Cinzel Decorative',serif;font-size:12px;letter-spacing:0.24em;">🜂 Cinder Caverns unlocked</div>`);
+  if (s.unlockedHyper)  lines.push(`<div style="margin-top:6px;color:#ff5555;font-family:'Cinzel Decorative',serif;font-size:12px;letter-spacing:0.24em;">🔥 Hyper unlocked</div>`);
+  if (s.unlockedEndless)lines.push(`<div style="margin-top:6px;color:#7fffe4;font-family:'Cinzel Decorative',serif;font-size:12px;letter-spacing:0.24em;">♾ Endless unlocked</div>`);
+  div.innerHTML = lines.join('');
+  div.style.cssText = `
+    position: fixed; top: 8%; left: 50%; transform: translateX(-50%);
+    padding: 18px 32px; pointer-events: none; z-index: 95;
+    background: linear-gradient(180deg, rgba(243,232,207,0.96), rgba(217,202,170,0.95));
+    border: 1px solid rgba(35,26,20,0.6); border-radius: 10px;
+    box-shadow: 0 8px 28px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,255,255,0.55);
+    text-align: center; min-width: 360px;
+    opacity: 0; transform: translateX(-50%) translateY(-12px);
+    transition: opacity 0.35s ease, transform 0.35s ease;
+  `;
+  document.body.appendChild(div);
+  // Animate in
+  requestAnimationFrame(() => {
+    div.style.opacity = '1';
+    div.style.transform = 'translateX(-50%) translateY(0)';
+  });
+  // Auto-dismiss after 5s
+  setTimeout(() => {
+    div.style.opacity = '0';
+    div.style.transform = 'translateX(-50%) translateY(-12px)';
+    setTimeout(() => { if (div.parentNode) div.parentNode.removeChild(div); }, 500);
+  }, 5000);
+}
+
+function restartRun() {
+  _teardownActiveRun();
+  _primeRunStart();
+  state.mode = 'run';
   state._deathShown = false;
   state.started = true;
   state.run.startedAt = performance.now();
@@ -537,6 +602,7 @@ function frame(now) {
   updateBossTelegraphs(logicDt);
   tickTotems(logicDt);
   tickPylons(logicDt);
+  tickBells(logicDt);
   tickPickups(logicDt);
   updateBlobShadows();
   updateDamageNumbers(realDt);

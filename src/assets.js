@@ -271,6 +271,10 @@ export function preloadAll() {
     ['dead_tree',BASE + 'Dead Tree.glb'],
     ['chest',    BASE + 'chest.glb'],
     ['chest_open', BASE + 'chest_open.glb'],
+    // Optional: Cheesy Burgers weapon mesh. If absent, orbitals.js falls back
+    // to its procedural primitive stack. Drop a model named cheeseburger.glb
+    // (any orientation/scale; will be auto-fit) into assets/breakroom/ to use.
+    ['burger',   BASE + 'cheeseburger.glb'],
   ];
   return Promise.all(list.map(([k, p]) => _preload(k, p)));
 }

@@ -439,6 +439,14 @@ export function killEnemy(enemy) {
     import('./pylons.js').then(({ onPylonKilled }) => onPylonKilled(enemy));
     return;
   }
+  // Bell branch: same shape — risk/reward, guaranteed chest + ember bonus.
+  if (enemy.isBell) {
+    state.enemies.spatial.remove(enemy);
+    const idx = state.enemies.active.indexOf(enemy);
+    if (idx >= 0) state.enemies.active.splice(idx, 1);
+    import('./bells.js').then(({ onBellKilled }) => onBellKilled(enemy));
+    return;
+  }
 
   // Clean up any in-progress boss telegraph ring attached to this enemy
   if (enemy._tellRing) {
@@ -703,8 +711,9 @@ export function updateEnemies(dt) {
         }
       }
 
-      // Walk (scaled by slow + rangedAI behavior)
-      const step = e.spd * slow * dt * walkScale;
+      // Walk (scaled by slow + rangedAI behavior + Cursed Bell enrage)
+      const enrage = (e._enrageUntil && state.time.game < e._enrageUntil) ? 1.5 : 1.0;
+      const step = e.spd * slow * enrage * dt * walkScale;
       ep.x += dx * step;
       ep.z += dz * step;
 
@@ -719,9 +728,9 @@ export function updateEnemies(dt) {
       if (!e.alive) continue;
     }
 
-    // Static destructibles (totems, pylons) skip movement + contact code;
+    // Static destructibles (totems, pylons, bells) skip movement + contact;
     // their own tickers handle behavior. DoT/flash above still applies.
-    if (e.isTotem || e.isPylon) continue;
+    if (e.isTotem || e.isPylon || e.isBell) continue;
 
     // ── Knockback velocity (from dash, etc.) — additive on top of walk ──
     if (e.knockVx !== 0 || e.knockVz !== 0) {
@@ -770,7 +779,8 @@ export function updateEnemies(dt) {
     _tmpDelta.set(heroPos.x - ep.x, 0, heroPos.z - ep.z);
     const contactSq = _tmpDelta.x * _tmpDelta.x + _tmpDelta.z * _tmpDelta.z;
     if (contactSq <= CONTACT_DIST_SQ && e.contactCooldown <= 0) {
-      heroTakeDamage(e.dmg);
+      const dmgMul = (e._enrageUntil && state.time.game < e._enrageUntil) ? 1.25 : 1.0;
+      heroTakeDamage(e.dmg * dmgMul);
       e.contactCooldown = CONTACT_CD;
     }
   }
