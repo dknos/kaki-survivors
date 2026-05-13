@@ -1,25 +1,98 @@
 /**
- * Holy Croissants — orbital weapon.
- * N orbs orbit the hero, damaging enemies on contact (with per-orb per-enemy cooldown).
+ * Cheesy Burgers — orbital weapon.
+ * N burgers orbit the hero, damaging on contact (per-orb/per-enemy cooldown).
+ * Each burger is a stacked group: bottom bun + patty + cheese square + top bun
+ * with sesame seed dots. A flat additive glow disc sits under each one so they
+ * still read as energy + pop under bloom.
  */
 import * as THREE from 'three';
 import { state } from '../state.js';
 import { damageEnemy, queryRadius } from '../enemies.js';
+import { tex } from '../particleTextures.js';
+import { BLOOM_LAYER } from '../postfx.js';
 
-const ORB_GEO = new THREE.SphereGeometry(0.25, 8, 8);
-const ORB_MAT = new THREE.MeshBasicMaterial({ color: 0xffcc44 });
-const HIT_RADIUS = 0.5;
+// ── Shared geometries + materials (cached across all orbs for batching) ──
+const BUN_GEO    = new THREE.CylinderGeometry(0.30, 0.34, 0.16, 18);
+const TOP_BUN_GEO = new THREE.SphereGeometry(0.32, 18, 12, 0, Math.PI * 2, 0, Math.PI / 2); // dome
+const PATTY_GEO  = new THREE.CylinderGeometry(0.32, 0.32, 0.09, 18);
+const CHEESE_GEO = new THREE.BoxGeometry(0.74, 0.04, 0.74);
+const SEED_GEO   = new THREE.SphereGeometry(0.035, 6, 5);
+
+const BUN_MAT    = new THREE.MeshStandardMaterial({ color: 0xd99b54, roughness: 0.78, metalness: 0.0 });
+const PATTY_MAT  = new THREE.MeshStandardMaterial({ color: 0x3e1f0e, roughness: 0.85, metalness: 0.0 });
+const CHEESE_MAT = new THREE.MeshStandardMaterial({ color: 0xffc23a, emissive: 0x8a5a00, emissiveIntensity: 0.25, roughness: 0.6 });
+const SEED_MAT   = new THREE.MeshStandardMaterial({ color: 0xf2e3b6, roughness: 0.7 });
+
+const GLOW_GEO = new THREE.PlaneGeometry(0.95, 0.95);
+const GLOW_MAT = new THREE.MeshBasicMaterial({
+  map: tex('glowGold'), color: 0xffd24a,
+  transparent: true, opacity: 0.45, depthWrite: false, blending: THREE.AdditiveBlending,
+});
+
+const HIT_RADIUS = 0.55;
+const _glowFlat = new THREE.Quaternion().setFromEuler(new THREE.Euler(-Math.PI / 2, 0, 0));
+
+function _makeBurger() {
+  const g = new THREE.Group();
+  // Bottom bun
+  const bot = new THREE.Mesh(BUN_GEO, BUN_MAT);
+  bot.position.y = 0.08;
+  bot.castShadow = true;
+  g.add(bot);
+  // Patty
+  const patty = new THREE.Mesh(PATTY_GEO, PATTY_MAT);
+  patty.position.y = 0.20;
+  g.add(patty);
+  // Cheese — square slice, slightly rotated for that "draped" silhouette
+  const cheese = new THREE.Mesh(CHEESE_GEO, CHEESE_MAT);
+  cheese.position.y = 0.255;
+  cheese.rotation.y = Math.PI / 6;
+  g.add(cheese);
+  // Top bun dome
+  const top = new THREE.Mesh(TOP_BUN_GEO, BUN_MAT);
+  top.scale.set(1.0, 0.85, 1.0);
+  top.position.y = 0.28;
+  top.castShadow = true;
+  g.add(top);
+  // Sesame seeds — 5 scattered on top
+  const seedPositions = [
+    [0.00, 0.50, 0.00],
+    [0.16, 0.46, 0.04],
+    [-0.14, 0.46, -0.06],
+    [0.08, 0.47, -0.16],
+    [-0.10, 0.47, 0.14],
+  ];
+  for (const [x, y, z] of seedPositions) {
+    const s = new THREE.Mesh(SEED_GEO, SEED_MAT);
+    s.position.set(x, y, z);
+    g.add(s);
+  }
+  return g;
+}
 
 function spawnOrbs(level, inst) {
   const scene = state.scene;
   inst.orbs = [];
   for (let i = 0; i < level.count; i++) {
-    const mesh = new THREE.Mesh(ORB_GEO, ORB_MAT);
-    mesh.position.copy(state.hero.pos);
-    mesh.position.y = 0.5;
-    scene.add(mesh);
+    const group = new THREE.Group();
+    // Burger stack
+    const burger = _makeBurger();
+    burger.layers.enable(BLOOM_LAYER);
+    burger.traverse(o => { if (o.isMesh) o.layers.enable(BLOOM_LAYER); });
+    group.add(burger);
+    // Flat additive glow on ground
+    const glow = new THREE.Mesh(GLOW_GEO, GLOW_MAT);
+    glow.quaternion.copy(_glowFlat);
+    glow.position.y = -0.40;
+    glow.layers.enable(BLOOM_LAYER);
+    group.add(glow);
+    group.position.copy(state.hero.pos);
+    group.position.y = 0.5;
+    scene.add(group);
     inst.orbs.push({
-      mesh,
+      mesh: group,
+      core: burger,
+      glow,
       angle: (i / level.count) * Math.PI * 2,
       lastHitTime: new Map(),
     });
@@ -37,9 +110,9 @@ function disposeOrbs(inst) {
 
 export default {
   id: 'orbitals',
-  name: 'Holy Croissants',
-  desc: 'Orbiting orbs damage on contact',
-  icon: '🥐',
+  name: 'Cheesy Burgers',
+  desc: 'Sacred cheeseburgers orbit you, smashing what they touch',
+  icon: '🍔',
   maxLevel: 8,
   levels: [
     { count: 2, dmg: 8,  radius: 2.5, rotSpeed: 2.4, dmgInterval: 0.5 },
@@ -63,13 +136,45 @@ export default {
     const areaMul = state.hero.statMul.area || 1;
     const radius = level.radius * areaMul;
     const dmgMul = state.hero.statMul.dmg || 1;
-    const dmg = level.dmg * dmgMul;
+    const evoMul = inst.evolved ? 2.5 : 1;
+    const dmg = level.dmg * dmgMul * evoMul;
+    const radiusFinal = radius * (inst.evolved ? 1.15 : 1);
+
+    // Toxic Halo evo: tint the cheese poison-green + recolor the ground glow
+    if (inst.evolved && !inst._tinted) {
+      inst._tinted = true;
+      for (const orb of inst.orbs) {
+        // Walk the burger group; the cheese has the unique CHEESE_MAT color.
+        if (orb.core && orb.core.traverse) {
+          orb.core.traverse(o => {
+            if (!o.isMesh || !o.material) return;
+            // Cheese slice has the warmest emissive — recolor to poison.
+            if (o.geometry === CHEESE_GEO) {
+              o.material = o.material.clone();
+              o.material.color.set(0xb0ff44);
+              o.material.emissive.set(0x4a8a1a);
+              o.material.emissiveIntensity = 0.5;
+            }
+          });
+        }
+        if (orb.glow && orb.glow.material) {
+          orb.glow.material = orb.glow.material.clone();
+          orb.glow.material.color.set(0x99ff33);
+        }
+      }
+    }
+
+    // Subtle glow pulse — costs nothing, reads as energy
+    const pulse = 1 + Math.sin(now * 4) * 0.08;
 
     for (const orb of inst.orbs) {
       orb.angle += level.rotSpeed * dt;
-      const x = hero.x + Math.cos(orb.angle) * radius;
-      const z = hero.z + Math.sin(orb.angle) * radius;
+      const x = hero.x + Math.cos(orb.angle) * radiusFinal;
+      const z = hero.z + Math.sin(orb.angle) * radiusFinal;
       orb.mesh.position.set(x, 0.5, z);
+      // Self-spin so each burger reads as a tumbling object, not a sprite.
+      if (orb.core) orb.core.rotation.y += dt * 1.8;
+      if (orb.glow) orb.glow.scale.setScalar(pulse);
 
       // Collision check
       const candidates = queryRadius(orb.mesh.position, HIT_RADIUS);
@@ -78,8 +183,15 @@ export default {
         if (!enemy || !enemy.alive) continue;
         const last = orb.lastHitTime.get(enemy) || -Infinity;
         if (now - last >= level.dmgInterval) {
-          damageEnemy(enemy, dmg);
+          const src = inst.evolved ? 'toxic_halo' : 'orbitals';
+          damageEnemy(enemy, dmg, src);
           orb.lastHitTime.set(enemy, now);
+          // Toxic Halo: stamp a poison DoT (1s @ dmg/2 per second)
+          if (inst.evolved) {
+            enemy._dotDps = dmg * 0.5;
+            enemy._dotUntil = now + 1.0;
+            enemy._dotSource = src;
+          }
         }
       }
     }

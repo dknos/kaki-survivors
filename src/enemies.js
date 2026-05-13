@@ -10,10 +10,15 @@
  */
 import * as THREE from 'three';
 import { state } from './state.js';
-import { ENEMY_TIERS, POOL_PREWARM, SPATIAL, HERO } from './config.js';
-import { cloneCached, GLTF_CACHE } from './assets.js';
+import { ENEMY_TIERS, POOL_PREWARM, SPATIAL, HERO, SPAWN, DAMAGE } from './config.js';
+import { cloneCached, GLTF_CACHE, getClips, findClip, upgradeMaterials, injectVertAnim } from './assets.js';
 import { takeDamage as heroTakeDamage } from './hero.js';
 import { dropGem } from './xp.js';
+import { spawnDamageNumber } from './damageNumbers.js';
+import { spawnKillRing } from './fx.js';
+import { spawnEnemyProjectile } from './enemyProjectiles.js';
+import { spawnChest } from './chest.js';
+import { spawnHeart, spawnStar, spawnBomb, spawnFreeze, spawnChicken } from './pickups.js';
 import { sfx } from './audio.js';
 
 // ── Module-scope temp vectors (reuse, never `new` in update loops) ────────────
@@ -30,6 +35,8 @@ const SEPARATION_NEIGHBORS = 3;
 const CONTACT_DIST_SQ = 1.0 * 1.0;   // use a friendly 1.0 unit total contact
 
 let _scene = null;
+let _loggedSizes = null;
+let _loggedClips = null;
 
 // ── Tier lookup ───────────────────────────────────────────────────────────────
 const _tierByGlb = Object.create(null);
@@ -133,10 +140,114 @@ export function initEnemies(scene) {
 function _makePooledMesh(glbKey, scale) {
   const mesh = cloneCached(glbKey);
   if (!mesh) return null;
-  mesh.scale.setScalar(scale);
+  // Roughness picks: bugs (chitinous) shimmer slightly, elites stand out shinier.
+  let rough = null;
+  const tierCfg = _tierByGlb[glbKey];
+  if (tierCfg && tierCfg.elite) rough = 0.55;            // elite = glossier
+  else if (tierCfg && tierCfg.procAnim) rough = 0.65;    // bugs = mid-gloss chitin
+  upgradeMaterials(mesh, 0.55, rough);     // Lambert/Phong → Standard + envMap
+
+  // Per-pool-mesh material clones — required for per-instance damage flash
+  // (cloneCached shares materials across instances by default).
+  const flashMats = [];
+  mesh.traverse(o => {
+    if (!o.isMesh || !o.material) return;
+    if (Array.isArray(o.material)) {
+      o.material = o.material.map(m => m.clone());
+      for (const m of o.material) flashMats.push({ mat: m, origEmissive: m.emissive ? m.emissive.getHex() : 0x000000, origIntensity: m.emissiveIntensity || 0 });
+    } else {
+      o.material = o.material.clone();
+      flashMats.push({ mat: o.material, origEmissive: o.material.emissive ? o.material.emissive.getHex() : 0x000000, origIntensity: o.material.emissiveIntensity || 0 });
+    }
+  });
+  mesh.userData.flashMats = flashMats;
+
+  // Per-instance hue jitter for bug-tier meshes so a swarm reads as individuals.
+  // Skip Quaternius rigged models — their colors are part of the character design.
+  const _tier = _tierByGlb[glbKey];
+  if (_tier && _tier.procAnim) {
+    const hueShift = (Math.random() - 0.5) * 0.18;   // ±9% hue rotation
+    const valJitter = 1 + (Math.random() - 0.5) * 0.18;
+    const _hsl = { h: 0, s: 0, l: 0 };
+    for (const fm of flashMats) {
+      if (!fm.mat || !fm.mat.color) continue;
+      fm.mat.color.getHSL(_hsl);
+      _hsl.h = (_hsl.h + hueShift + 1) % 1;
+      _hsl.l = Math.max(0, Math.min(1, _hsl.l * valJitter));
+      fm.mat.color.setHSL(_hsl.h, _hsl.s, _hsl.l);
+      fm.mat.needsUpdate = true;
+    }
+  }
+
+  // Ghost-style: cool blue tint + translucent
+  if (glbKey === 'ghost') {
+    mesh.traverse(o => {
+      if (o.isMesh && o.material) {
+        const mats = Array.isArray(o.material) ? o.material : [o.material];
+        for (const m of mats) {
+          m.transparent = true;
+          m.opacity = 0.55;
+          m.depthWrite = false;
+          if (m.color) m.color.lerp(new THREE.Color(0xaad8ff), 0.5);
+          if (m.emissive) m.emissive.set(0x223355);
+          m.emissiveIntensity = 0.4;
+          m.needsUpdate = true;
+        }
+      }
+    });
+  }
+
+  // Auto-fit: derive scale from bbox so swap-ins don't break sizing.
+  // tier.scale acts as a multiplier on "1 hero-unit tall" baseline (~2 world units).
+  // Update world matrix so bbox is correct (cloned scenes are dirty by default).
+  mesh.updateMatrixWorld(true);
+  const rawBox = new THREE.Box3().setFromObject(mesh);
+  const raw = rawBox.getSize(new THREE.Vector3());
+  const baseFit = raw.y > 1e-6 ? 2.0 / raw.y : 1;
+  mesh.userData.baseFit = baseFit;
+  mesh.scale.setScalar(baseFit * scale);
+  // Many Quaternius models have origin at center/chest. After scaling, measure
+  // bbox.min.y and stash so spawnEnemy can lift the model so feet sit on ground.
+  mesh.updateMatrixWorld(true);
+  const fitBox = new THREE.Box3().setFromObject(mesh);
+  mesh.userData.yOffset = -fitBox.min.y;
+  if (!_loggedSizes) {
+    _loggedSizes = {};
+  }
+  if (!_loggedSizes[glbKey]) {
+    _loggedSizes[glbKey] = true;
+    console.log(`[enemy:${glbKey}] raw=${raw.x.toFixed(2)}x${raw.y.toFixed(2)}x${raw.z.toFixed(2)} fit=${baseFit.toFixed(3)} yOffset=${mesh.userData.yOffset.toFixed(2)}`);
+  }
   mesh.visible = false;
-  mesh.position.set(0, 0, 0);
-  // Optional: disable frustum culling churn on hidden meshes — leave default for now.
+  mesh.position.set(0, mesh.userData.yOffset, 0);
+
+  // Animation mixer: attach a mixer + the model's first animation clip if any.
+  // We pre-warm the mixer here so spawnEnemy doesn't pay the cost mid-game.
+  const clips = getClips(glbKey);
+  if (clips.length > 0) {
+    const mixer = new THREE.AnimationMixer(mesh);
+    const clip = findClip(clips, 'walk', 'run', 'move', 'idle');
+    if (clip) {
+      const action = mixer.clipAction(clip);
+      action.setLoop(THREE.LoopRepeat, Infinity);
+      action.play();
+      mesh.userData.hasClip = true;
+    }
+    mesh.userData.mixer = mixer;
+    mesh.userData.mixerPhase = Math.random() * 1.2;
+  }
+  if (!_loggedClips) _loggedClips = {};
+  if (!_loggedClips[glbKey]) {
+    _loggedClips[glbKey] = true;
+    console.log(`[enemy:${glbKey}] clips: ${clips.length} ${clips.map(c => c.name).join(',')}`);
+  }
+
+  // Vertex-shader animation for static GLBs (no skeleton/clips).
+  // Drives leg/wing motion via uniform `vertTime` updated each frame.
+  const tier = _tierByGlb[glbKey];
+  if (tier && tier.procAnim && clips.length === 0) {
+    mesh.userData.vertAnimMats = injectVertAnim(mesh, tier.procAnim);
+  }
   return mesh;
 }
 
@@ -174,27 +285,136 @@ export function spawnEnemy(tierConfig, x, z) {
     _scene.add(mesh);
   }
 
-  mesh.position.set(x, 0, z);
-  mesh.scale.setScalar(tierConfig.scale);
+  const fit = mesh.userData && mesh.userData.baseFit ? mesh.userData.baseFit : 1;
+  mesh.scale.setScalar(fit * tierConfig.scale);
+  // yOffset was computed at pool-time AFTER scale was applied — it's already in
+  // world units. Do NOT multiply by tier.scale again (was clipping models into ground).
+  const yOff = (mesh.userData && mesh.userData.yOffset) || 0;
+  mesh.position.set(x, yOff, z);
   mesh.visible = true;
 
   /** @type {import('./state.js').EnemyInstance} */
+  // Hyper mode: 1.5× HP/spd/dmg across the board.
+  // Daily 'HARDER SPAWNS' modifier stacks an additional HP multiplier.
+  // Stage 2+ also stacks an HP multiplier (e.g. Twilight Hollow = 1.30×).
+  const hyper   = state.modes && state.modes.hyper ? 1.5 : 1;
+  const dailyHp = state.run && state.run.dailyHpMul ? state.run.dailyHpMul : 1;
+  const stageHp = state.run && state.run.stageHpMul ? state.run.stageHpMul : 1;
+  const hpMul   = hyper * dailyHp * stageHp;
   const enemy = {
     mesh,
     glbKey: key,
-    hp: tierConfig.hp,
-    hpMax: tierConfig.hp,
-    spd: tierConfig.spd,
-    dmg: tierConfig.dmg,
+    hp: tierConfig.hp * hpMul,
+    hpMax: tierConfig.hp * hpMul,
+    spd: tierConfig.spd * hyper,
+    dmg: tierConfig.dmg * hyper,
     contactCooldown: 0,
     elite: !!tierConfig.elite,
+    isFinalBoss: !!tierConfig.isFinalBoss,
+    isMiniBoss: !!tierConfig.isMiniBoss,
+    // Yaw offset added to atan2(dx,dz) when facing the hero.
+    // - `faceFlip: true`  → π   (GLB authored facing +Z forward)
+    // - `faceYaw: <rad>`  → arbitrary radian offset (e.g. ±π/2 for sideways)
+    // faceYaw wins if both set.
+    faceYaw: (typeof tierConfig.faceYaw === 'number')
+      ? tierConfig.faceYaw
+      : (tierConfig.faceFlip ? Math.PI : 0),
     alive: true,
     _spatialKey: null,
+    knockVx: 0,
+    knockVz: 0,
+    slowMul: 1,
+    _dotDps: 0,
+    _dotUntil: 0,
+    _flashUntil: 0,
+    _wasFlashing: false,
+    procAnim: tierConfig.procAnim || null,
+    ranged: tierConfig.ranged || null,
+    rangedCD: tierConfig.ranged ? (Math.random() * tierConfig.ranged.cooldown) : 0,
+    _animPhase: Math.random() * 6,
+    // yOffset is already in world units (computed post-scale at pool time)
+    _baseY: (mesh.userData && mesh.userData.yOffset ? mesh.userData.yOffset : 0),
+    _baseScale: (mesh.userData && mesh.userData.baseFit ? mesh.userData.baseFit : 1) * tierConfig.scale,
   };
+
+  // If the mesh was just retrieved from pool with stale flash state, restore mats
+  const fm = mesh.userData && mesh.userData.flashMats;
+  if (fm) {
+    for (const m of fm) {
+      if (m.mat && m.mat.emissive) {
+        m.mat.emissive.setHex(m.origEmissive);
+        m.mat.emissiveIntensity = m.origIntensity;
+      }
+    }
+  }
+
+  // Selective shadow casting — only elites/mini/final cast real shadows.
+  // Swarm enemies keep blob shadows for performance (200 casters would tank).
+  const castOn = !!(tierConfig.elite || tierConfig.isMiniBoss || tierConfig.isFinalBoss);
+  if (mesh.userData._castSet !== castOn) {
+    mesh.traverse(o => { if (o.isMesh) o.castShadow = castOn; });
+    mesh.userData._castSet = castOn;
+  }
 
   state.enemies.spatial.insert(enemy);
   state.enemies.active.push(enemy);
   return enemy;
+}
+
+// Procedural body anim for static GLBs that have no AnimationMixer clip.
+// Drives whole-mesh transform — no skeleton required.
+function _applyProcAnim(e) {
+  const m = e.mesh;
+  const p = e._animPhase;
+  const baseY = e._baseY || 0;
+  const baseS = e._baseScale || 1;
+  switch (e.procAnim) {
+    case 'crawl': {
+      // Subtle leg-compress: tiny scale pulse + tiny bob. NO body tilt (was
+      // tipping the model through the ground at large amplitudes).
+      const wob = Math.sin(p * 12);
+      m.scale.x = baseS * (1 + wob * 0.04);
+      m.scale.z = baseS * (1 - wob * 0.025);
+      m.scale.y = baseS;
+      m.position.y = baseY + Math.abs(wob) * 0.015;
+      break;
+    }
+    case 'flap': {
+      // Wing flap — scale X big amplitude reads as wings closing/opening from iso
+      const flap = Math.sin(p * 18);
+      m.scale.x = baseS * (1 + flap * 0.30);
+      m.scale.z = baseS * (1 - flap * 0.08);
+      m.scale.y = baseS;
+      m.position.y = baseY + Math.sin(p * 4) * 0.35 + 0.2;
+      break;
+    }
+    case 'hover': {
+      // Rapid wing micro-jitter + soft float
+      m.scale.x = baseS * (1 + Math.sin(p * 60) * 0.08);
+      m.scale.z = baseS;
+      m.scale.y = baseS;
+      m.position.y = baseY + Math.sin(p * 6) * 0.20 + 0.25;
+      break;
+    }
+    case 'hop': {
+      // Vertical bounce — modest height so it doesn't read as flying
+      const h = Math.max(0, Math.sin(p * 3.5));
+      m.position.y = baseY + h * 0.30;
+      // Slight squash on contact (frame where h ≈ 0)
+      const squash = 1 - (1 - h) * 0.10;
+      m.scale.y = baseS * squash;
+      break;
+    }
+    case 'inch': {
+      // Accordion squash along length
+      const s = Math.sin(p * 4.5);
+      m.scale.x = baseS * (1 + s * 0.14);
+      m.scale.z = baseS * (1 - s * 0.10);
+      m.scale.y = baseS;
+      m.position.y = baseY + Math.abs(s) * 0.03;
+      break;
+    }
+  }
 }
 
 export function killEnemy(enemy) {
@@ -202,10 +422,136 @@ export function killEnemy(enemy) {
   enemy.alive = false;
   enemy.mesh.visible = false;
 
-  // Drop XP gem
-  dropGem(enemy.mesh.position.clone(), enemy.elite ? 5 : 1);
+  // Totem branch: custom death handling lives in src/totems.js (drops chest,
+  // schedules respawn, removes mesh from scene since totems aren't pooled).
+  if (enemy.isTotem) {
+    state.enemies.spatial.remove(enemy);
+    const idx = state.enemies.active.indexOf(enemy);
+    if (idx >= 0) state.enemies.active.splice(idx, 1);
+    import('./totems.js').then(({ onTotemKilled }) => onTotemKilled(enemy));
+    return;
+  }
+  // Pylon branch: same shape — custom mesh, custom death drops.
+  if (enemy.isPylon) {
+    state.enemies.spatial.remove(enemy);
+    const idx = state.enemies.active.indexOf(enemy);
+    if (idx >= 0) state.enemies.active.splice(idx, 1);
+    import('./pylons.js').then(({ onPylonKilled }) => onPylonKilled(enemy));
+    return;
+  }
+
+  // Clean up any in-progress boss telegraph ring attached to this enemy
+  if (enemy._tellRing) {
+    if (enemy._tellRing.parent) enemy._tellRing.parent.remove(enemy._tellRing);
+    enemy._tellRing = null;
+  }
+  enemy._windupStart = -1;
+  enemy._telegraphInit = false;
+
+  // Kill ring fx (no ring on final boss — covered by victory cinematic)
+  if (!enemy.isFinalBoss) {
+    spawnKillRing(enemy.mesh.position.x, enemy.mesh.position.z, enemy.elite);
+  }
+
+  // Drops: heart (HP) and star (gem vacuum). Elites guaranteed-ish.
+  if (!enemy.isFinalBoss) {
+    const heartRoll = enemy.elite ? 1.0 : 0.05;
+    if (Math.random() < heartRoll) {
+      spawnHeart(enemy.mesh.position.x, enemy.mesh.position.z);
+    }
+    const starRoll = enemy.elite ? 0.50 : 0.02;
+    if (Math.random() < starRoll) {
+      spawnStar(enemy.mesh.position.x + (enemy.elite ? 1 : 0), enemy.mesh.position.z);
+    }
+  }
+  // Elites have a chance to drop a chest at their death position
+  if (enemy.elite && !enemy.isFinalBoss && !enemy.isMiniBoss && Math.random() < SPAWN.chestEliteDropChance) {
+    spawnChest(enemy.mesh.position.x, enemy.mesh.position.z);
+  }
+  // Mini-boss: guaranteed chest + 2 hearts + 1 star + 1 bomb (proper reward).
+  if (enemy.isMiniBoss) {
+    const ex = enemy.mesh.position.x, ez = enemy.mesh.position.z;
+    spawnChest(ex, ez);
+    spawnHeart(ex - 1.2, ez);
+    spawnHeart(ex + 1.2, ez);
+    spawnStar(ex, ez + 1.2);
+    spawnBomb(ex, ez - 1.2);
+  }
+  // Rare drops from regular kills: bomb 0.3%, freeze 0.5%, chicken 0.2%.
+  if (!enemy.isFinalBoss && !enemy.isMiniBoss) {
+    const r = Math.random();
+    if (r < 0.003) spawnBomb(enemy.mesh.position.x, enemy.mesh.position.z);
+    else if (r < 0.008) spawnFreeze(enemy.mesh.position.x, enemy.mesh.position.z);
+    else if (r < 0.010) spawnChicken(enemy.mesh.position.x, enemy.mesh.position.z);
+  }
+  // Elites: 8% freeze, 5% chicken (in addition to baseline rolls)
+  if (enemy.elite && !enemy.isFinalBoss && !enemy.isMiniBoss) {
+    if (Math.random() < 0.08) spawnFreeze(enemy.mesh.position.x, enemy.mesh.position.z);
+    if (Math.random() < 0.05) spawnChicken(enemy.mesh.position.x, enemy.mesh.position.z);
+  }
+  // Final boss always drops a chest (player can still grab it after victory anim — fine)
+  if (enemy.isFinalBoss) {
+    spawnChest(enemy.mesh.position.x + 2, enemy.mesh.position.z);
+  }
+
+  // Drop XP gem (final boss drops a bigger reward)
+  dropGem(enemy.mesh.position.clone(),
+    enemy.isFinalBoss ? 25 : (enemy.elite ? 5 : 1));
 
   state.run.kills++;
+  state.run.noDmgKills = (state.run.noDmgKills || 0) + 1;
+
+  // Achievements
+  import('./ui.js').then(({ tryAchievement, trySecret }) => {
+    tryAchievement('first_kill');
+    if (enemy.elite) tryAchievement('first_elite');
+    if (state.run.kills >= 100) tryAchievement('kills_100');
+    // Secret: Flawless — 100 kills this run without taking damage
+    if (state.run.flawless && state.run.noDmgKills >= 100) trySecret('pacifist_100');
+  });
+
+  // Secret: lifetime bug kills (tiers with procAnim are the forest-bug set)
+  const tier = _tierByGlb[enemy.glbKey];
+  if (tier && tier.procAnim) {
+    import('./meta.js').then(({ bumpLifetime }) => {
+      const total = bumpLifetime('bugKills', 1);
+      if (total >= 500) import('./ui.js').then(({ trySecret }) => trySecret('bug_lord'));
+    });
+  }
+
+  // Final boss kill = victory (or just a banner in Endless mode)
+  if (enemy.isFinalBoss && !state.gameOver) {
+    state.fx.bloomBoost = 1.0;
+    state.fx.shake = 0.9;
+    if (sfx && sfx.victory) sfx.victory();
+    import('./ui.js').then(({ tryAchievement }) => tryAchievement('first_victory'));
+    // Roll + persist a relic for the death-screen reveal.
+    import('./meta.js').then(({ rollRelic, addRelic }) => {
+      const drop = rollRelic();
+      addRelic(drop);
+      state.run.relicDrop = drop;
+    });
+    if (state.modes && state.modes.endless) {
+      // Endless: don't end the run. Drop another reward chest and let the run continue.
+      import('./chest.js').then(({ spawnChest }) => {
+        spawnChest(enemy.mesh.position.x + 2, enemy.mesh.position.z);
+        spawnChest(enemy.mesh.position.x - 2, enemy.mesh.position.z);
+      });
+      import('./ui.js').then(({ showBanner }) => showBanner('THE NIGHTMARE CONTINUES', 4.0, '#ff5555'));
+    } else {
+      state.gameOver = true;
+      state.victory = true;
+      state.dyingUntil = state.time.real + 1.2;
+    }
+  }
+
+  // Mini-boss tally
+  if (enemy.isMiniBoss) {
+    state.run.miniBossKills = (state.run.miniBossKills || 0) + 1;
+    if (state.run.miniBossKills >= 3) {
+      import('./ui.js').then(({ tryAchievement }) => tryAchievement('minibox_x3'));
+    }
+  }
 
   // Return mesh to pool
   const pool = state.enemies.pools[enemy.glbKey] || (state.enemies.pools[enemy.glbKey] = []);
@@ -229,11 +575,31 @@ export function killEnemy(enemy) {
 // ─────────────────────────────────────────────────────────────────────────────
 // Damage interface (called by weapons)
 // ─────────────────────────────────────────────────────────────────────────────
-export function damageEnemy(enemy, dmg) {
+export function damageEnemy(enemy, dmg, source) {
   if (!enemy || !enemy.alive) return;
-  enemy.hp -= dmg;
-  state.run.dmgDealt += dmg;
-  if (enemy.hp <= 0) killEnemy(enemy);
+  // Variance + crit rolls (DoT skips crit by passing dmg with isDoT flag in future)
+  const variance = 1 + (Math.random() - 0.5) * 2 * DAMAGE.variance;
+  const isCrit = Math.random() < DAMAGE.critChance;
+  const finalDmg = dmg * variance * (isCrit ? DAMAGE.critMul : 1);
+  enemy.hp -= finalDmg;
+  state.run.dmgDealt += finalDmg;
+  state.run._dpsWin.push([state.time.game, finalDmg]);
+  // Per-source damage tally (drives the death-screen breakdown).
+  const src = source || enemy._dmgSource || 'other';
+  if (!state.run.dmgByWeapon) state.run.dmgByWeapon = {};
+  state.run.dmgByWeapon[src] = (state.run.dmgByWeapon[src] || 0) + finalDmg;
+  spawnDamageNumber(enemy.mesh.position, finalDmg, isCrit);
+  enemy._flashUntil = state.time.game + (isCrit ? 0.14 : 0.08);
+  if (isCrit) state.fx.shake = Math.max(state.fx.shake || 0, 0.20);
+  if (enemy.hp <= 0) {
+    // Hit-stop + shake: bigger for elites. Normal kills get only hit-stop —
+    // shake on every kill made the camera vibrate constantly mid-swarm.
+    const stopDur = enemy.elite ? 0.10 : 0.03;
+    const shakeAmt = enemy.elite ? 0.35 : 0.00;
+    if (state.fx.hitStop < stopDur) state.fx.hitStop = stopDur;
+    if (shakeAmt > 0 && state.fx.shake < shakeAmt) state.fx.shake = shakeAmt;
+    killEnemy(enemy);
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -251,10 +617,61 @@ export function updateEnemies(dt) {
     if (!e.alive) continue;
 
     const ep = e.mesh.position;
+    // ── Animation mixer ──
+    const mixer = e.mesh.userData && e.mesh.userData.mixer;
+    if (mixer) mixer.update(dt);
+
+    // ── Procedural animation (only if no GLB clip is playing) ──
+    if (e.procAnim && !(e.mesh.userData && e.mesh.userData.hasClip)) {
+      e._animPhase += dt;
+      _applyProcAnim(e);
+      // Drive shader-vertex anim uniforms
+      const vmats = e.mesh.userData && e.mesh.userData.vertAnimMats;
+      if (vmats) {
+        for (const m of vmats) {
+          const sh = m.userData && m.userData._vertAnimShader;
+          if (sh && sh.uniforms && sh.uniforms.vertTime) {
+            sh.uniforms.vertTime.value = e._animPhase;
+          }
+        }
+      }
+    }
+
+    // ── Damage flash: white emissive briefly on hit ──
+    const flashMats = e.mesh.userData && e.mesh.userData.flashMats;
+    if (flashMats) {
+      const isFlashing = e._flashUntil && state.time.game < e._flashUntil;
+      if (isFlashing !== e._wasFlashing) {
+        for (const fm of flashMats) {
+          if (!fm.mat || !fm.mat.emissive) continue;
+          if (isFlashing) {
+            fm.mat.emissive.setHex(0xffffff);
+            fm.mat.emissiveIntensity = 1.6;
+          } else {
+            fm.mat.emissive.setHex(fm.origEmissive);
+            fm.mat.emissiveIntensity = fm.origIntensity;
+          }
+        }
+        e._wasFlashing = isFlashing;
+      }
+    }
 
     // ── Seek hero ──
     _tmpDir.set(heroPos.x - ep.x, 0, heroPos.z - ep.z);
     const distSq = _tmpDir.x * _tmpDir.x + _tmpDir.z * _tmpDir.z;
+
+    // ── Web slow check ──
+    let slow = 1;
+    const webs = state.webs.list;
+    for (let w = 0; w < webs.length; w++) {
+      const W = webs[w];
+      if (W.ttl <= 0) continue;
+      const wdx = ep.x - W.x, wdz = ep.z - W.z;
+      if (wdx * wdx + wdz * wdz <= W.radius * W.radius) {
+        if (W.slowMul < slow) slow = W.slowMul;
+      }
+    }
+    e.slowMul = slow;
 
     if (distSq > 1e-6) {
       const dist = Math.sqrt(distSq);
@@ -262,14 +679,60 @@ export function updateEnemies(dt) {
       const dx = _tmpDir.x * inv;
       const dz = _tmpDir.z * inv;
 
-      // Walk
-      const step = e.spd * dt;
+      // Ranged AI: stop at `stopAt`, fire on cooldown when within `range`.
+      const r = e.ranged;
+      let walkScale = 1;
+      if (r) {
+        e.rangedCD -= dt * slow;
+        if (dist <= r.range) {
+          if (dist <= r.stopAt) {
+            walkScale = -0.3;            // gentle backpedal so we don't get melee'd
+          } else {
+            walkScale = 0;               // hold position to cast
+          }
+          if (e.rangedCD <= 0) {
+            e.rangedCD = r.cooldown;
+            // Fire from chest height; spawn slightly forward of enemy toward hero
+            spawnEnemyProjectile(
+              ep.x + dx * 0.6,
+              1.0,
+              ep.z + dz * 0.6,
+              r.projDmg, r.projSpeed, r.projTtl,
+            );
+          }
+        }
+      }
+
+      // Walk (scaled by slow + rangedAI behavior)
+      const step = e.spd * slow * dt * walkScale;
       ep.x += dx * step;
       ep.z += dz * step;
 
       // Face hero (XZ angle). Three.js: rotation.y of 0 looks down +Z;
       // atan2(x,z) is the standard "face this vector" formula.
-      e.mesh.rotation.y = Math.atan2(dx, dz);
+      e.mesh.rotation.y = Math.atan2(dx, dz) + (e.faceYaw || 0);
+    }
+
+    // ── Poison DoT (Toxic Halo) ──
+    if (e._dotUntil && state.time.game < e._dotUntil) {
+      damageEnemy(e, (e._dotDps || 0) * dt, e._dotSource || 'orbitals');
+      if (!e.alive) continue;
+    }
+
+    // Static destructibles (totems, pylons) skip movement + contact code;
+    // their own tickers handle behavior. DoT/flash above still applies.
+    if (e.isTotem || e.isPylon) continue;
+
+    // ── Knockback velocity (from dash, etc.) — additive on top of walk ──
+    if (e.knockVx !== 0 || e.knockVz !== 0) {
+      ep.x += e.knockVx * dt;
+      ep.z += e.knockVz * dt;
+      // Exponential decay (fast — ~85% per frame at 60fps)
+      const decay = Math.pow(0.0008, dt);
+      e.knockVx *= decay;
+      e.knockVz *= decay;
+      if (Math.abs(e.knockVx) < 0.05) e.knockVx = 0;
+      if (Math.abs(e.knockVz) < 0.05) e.knockVz = 0;
     }
 
     // ── Light separation ──

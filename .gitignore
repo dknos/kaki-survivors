@@ -1,0 +1,15 @@
+# OS / editor
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+.vscode/
+.idea/
+
+# Dependencies (none today — bundler-free importmap — but preempt)
+node_modules/
+
+# Local-only
+*.log
+.env
+.env.local

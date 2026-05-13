@@ -4,14 +4,23 @@
  */
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { SkeletonUtils } from 'three/addons/utils/SkeletonUtils.js';
+import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
+import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
+import { HERO } from './config.js';
 
 export const BASE = 'assets/breakroom/';
 
 /** @type {Record<string, any>} */
 export const GLTF_CACHE = {};
 
+// Draco decoder served from Google's CDN — required because tower-castle.glb and
+// tower-void.glb were re-exported with Draco compression.
+const _draco = new DRACOLoader();
+_draco.setDecoderPath('https://www.gstatic.com/draco/v1/decoders/');
+_draco.setDecoderConfig({ type: 'js' });
+
 const _loader = new GLTFLoader();
+_loader.setDRACOLoader(_draco);
 
 function _preload(key, path) {
   return new Promise(resolve => {
@@ -42,27 +51,226 @@ export function cloneCached(key) {
 }
 
 /**
+ * Return the animation clips for a cached GLTF, or empty array.
+ * Use with THREE.AnimationMixer to drive idle/walk/attack on enemies.
+ */
+export function getClips(key) {
+  const gltf = GLTF_CACHE[key];
+  return (gltf && gltf.animations) ? gltf.animations : [];
+}
+
+/**
+ * Pick a clip by fuzzy name match (case-insensitive substring). Used for
+ * resilience against varying naming conventions (Idle vs idle vs CharacterIdle).
+ */
+export function findClip(clips, ...needles) {
+  if (!clips || clips.length === 0) return null;
+  for (const needle of needles) {
+    const n = needle.toLowerCase();
+    for (const c of clips) {
+      if (c.name && c.name.toLowerCase().includes(n)) return c;
+    }
+  }
+  return clips[0] || null;
+}
+
+/**
+ * In-place material upgrade for a cloned GLTF scene: bumps Lambert/Phong to
+ * MeshStandardMaterial so it reads scene.environment and looks PBR-correct.
+ * Idempotent + cheap; safe to call on every spawn.
+ */
+const _upgradedCache = new WeakSet();
+
+/**
+ * Inject a view-space rim light term into a MeshStandardMaterial via onBeforeCompile.
+ * Cheap fragment-level fake — bumps `outgoingLight` near grazing-angle pixels so
+ * characters read against dark fog without needing real backlight.
+ */
+/**
+ * Inject vertex-displacement animation onto a static-mesh material.
+ * Used to fake leg/wing motion on Poly-by-Google bugs that have no skeleton.
+ * Kinds:
+ *   'crawl' — bottom verts sway in alternating phase along X (leg-shuffle)
+ *   'flap'  — side verts oscillate Y opposite to each other (wing flap)
+ *   'hover' — side verts rapid Y micro-jitter (wing buzz)
+ *   'inch'  — body verts squash-wave along X (worm crawl)
+ */
+function _injectVertAnim(mat, kind) {
+  if (!mat || mat.userData._vertAnimKind === kind) return;
+  mat.userData._vertAnimKind = kind;
+  const prior = mat.onBeforeCompile;
+  mat.onBeforeCompile = (shader) => {
+    if (prior) prior(shader);
+    shader.uniforms.vertTime = { value: 0 };
+    shader.uniforms.vertAmp  = { value: 1.0 };
+    let displaceSnippet = '';
+    switch (kind) {
+      case 'crawl':
+        displaceSnippet = `
+          float legMask = smoothstep(0.5, -0.5, position.y);
+          float wave = sin(vertTime * 18.0 + position.x * 6.0);
+          transformed.x += wave * 0.10 * legMask * vertAmp;
+          transformed.z += sin(vertTime * 18.0 + position.z * 6.0) * 0.06 * legMask * vertAmp;
+        `;
+        break;
+      case 'flap':
+        displaceSnippet = `
+          float wingMask = smoothstep(0.15, 0.8, abs(position.x));
+          float flap = sin(vertTime * 22.0);
+          transformed.y += flap * sign(position.x) * 0.45 * wingMask * vertAmp;
+        `;
+        break;
+      case 'hover':
+        displaceSnippet = `
+          float wingMask = smoothstep(0.1, 0.6, abs(position.x));
+          float buzz = sin(vertTime * 80.0);
+          transformed.y += buzz * sign(position.x) * 0.10 * wingMask * vertAmp;
+        `;
+        break;
+      case 'inch':
+        displaceSnippet = `
+          float bodyMask = 1.0 - smoothstep(0.5, 1.0, abs(position.y));
+          float pulse = sin(vertTime * 6.0 + position.x * 4.0);
+          transformed.x += pulse * 0.08 * bodyMask * vertAmp;
+          transformed.y += sin(vertTime * 6.0) * 0.04 * bodyMask * vertAmp;
+        `;
+        break;
+      default:
+        return;
+    }
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nuniform float vertTime;\nuniform float vertAmp;')
+      .replace('#include <begin_vertex>', `#include <begin_vertex>\n${displaceSnippet}`);
+    mat.userData._vertAnimShader = shader;
+  };
+  mat.needsUpdate = true;
+}
+
+/**
+ * Recursively flag every material on `root` for vert anim, and return the
+ * list of materials so the per-frame updater can mutate uniforms.
+ */
+export function injectVertAnim(root, kind) {
+  const mats = [];
+  root.traverse(o => {
+    if (!o.isMesh || !o.material) return;
+    const arr = Array.isArray(o.material) ? o.material : [o.material];
+    for (const m of arr) {
+      _injectVertAnim(m, kind);
+      mats.push(m);
+    }
+  });
+  return mats;
+}
+
+function _injectRim(mat) {
+  if (!mat || mat.userData._rimInjected) return;
+  mat.userData._rimInjected = true;
+  mat.onBeforeCompile = (shader) => {
+    shader.uniforms.rimColor = { value: new THREE.Color(0xaaccff) };
+    shader.uniforms.rimPower = { value: 2.4 };
+    shader.uniforms.rimStrength = { value: 0.35 };
+    shader.fragmentShader =
+      'uniform vec3 rimColor;\nuniform float rimPower;\nuniform float rimStrength;\n' +
+      shader.fragmentShader;
+    // Try both: newer three.js uses <opaque_fragment>, older <output_fragment>
+    const rimSnippet =
+      'float rim = pow(1.0 - max(dot(normalize(vNormal), normalize(vViewPosition)), 0.0), rimPower);\n' +
+      'outgoingLight += rimColor * rim * rimStrength;\n';
+    if (shader.fragmentShader.includes('#include <opaque_fragment>')) {
+      shader.fragmentShader = shader.fragmentShader.replace(
+        '#include <opaque_fragment>',
+        rimSnippet + '#include <opaque_fragment>',
+      );
+    } else if (shader.fragmentShader.includes('#include <output_fragment>')) {
+      shader.fragmentShader = shader.fragmentShader.replace(
+        '#include <output_fragment>',
+        rimSnippet + '#include <output_fragment>',
+      );
+    }
+  };
+}
+export function upgradeMaterials(root, envMapIntensity = 0.55, roughness = null) {
+  if (!root) return;
+  root.traverse((o) => {
+    if (!o.isMesh || !o.material) return;
+    const mats = Array.isArray(o.material) ? o.material : [o.material];
+    for (let i = 0; i < mats.length; i++) {
+      const m = mats[i];
+      if (_upgradedCache.has(m)) continue;
+      _upgradedCache.add(m);
+      if (m.isMeshStandardMaterial) {
+        m.envMapIntensity = envMapIntensity;
+        if (roughness !== null) m.roughness = roughness;
+        _injectRim(m);
+        m.needsUpdate = true;
+        continue;
+      }
+      // Upgrade Lambert/Phong/Basic → Standard, preserving color & map
+      if (m.isMeshLambertMaterial || m.isMeshPhongMaterial || m.isMeshBasicMaterial) {
+        const upgraded = new THREE.MeshStandardMaterial({
+          color: m.color ? m.color.clone() : new THREE.Color(0xffffff),
+          map: m.map || null,
+          metalness: 0.05,
+          roughness: roughness !== null ? roughness : 0.85,
+          emissive: (m.emissive ? m.emissive.clone() : new THREE.Color(0x000000)),
+          emissiveIntensity: m.emissiveIntensity || 0,
+          envMapIntensity,
+          transparent: !!m.transparent,
+          opacity: m.opacity !== undefined ? m.opacity : 1,
+        });
+        _injectRim(upgraded);
+        upgraded.needsUpdate = true;
+        if (Array.isArray(o.material)) o.material[i] = upgraded;
+        else o.material = upgraded;
+      }
+    }
+  });
+}
+
+/**
  * Preload hero + enemy roster. Keys here map to config.js ENEMY_TIERS[].glb
  * and HERO.glb. If a key is missing here, the corresponding system silently skips.
  */
 export function preloadAll() {
   const list = [
-    ['hero',     BASE + 'tower-castle.glb'],
-    ['zombie',   BASE + 'Zombie.glb'],
-    ['goblin',   BASE + 'Goblin.glb'],
-    ['skeleton', BASE + 'Skeleton.glb'],
-    ['orc',      BASE + 'Orc-Q.glb'],
-    ['demon',    BASE + 'Demon.glb'],
-    ['robot',    BASE + 'Robot-Enemy.glb'],
-    ['mech',     BASE + 'Mech-Walker.glb'],
-    ['xeno',     BASE + 'xenomorph.glb'],
-    ['slime',    BASE + 'Slime-Enemy.glb'],
-    ['giant',    BASE + 'Giant.glb'],
-    ['dragon',   BASE + 'Dragon.glb'],
+    ['hero',     BASE + HERO.glb],
+    // Animated Quaternius "Ultimate Monsters" (CC0). Keep `slime` low-poly for variety.
+    ['zombie',   BASE + 'Mushnub.glb'],          // small basic enemy
+    ['goblin',   BASE + 'Cactoro.glb'],          // cactus goblin
+    ['skeleton', BASE + 'Goleling.glb'],         // stone golem-style
+    ['orc',      BASE + 'Orc-New.glb'],          // tusked orc
+    ['demon',    BASE + 'Demon-New.glb'],        // red horned demon
+    ['robot',    BASE + 'Goleling-Evolved.glb'], // tougher golem
+    ['mech',     BASE + 'Yeti.glb'],             // hulking brute
+    ['xeno',     BASE + 'Blue-Demon.glb'],       // fast blue demon
+    ['slime',    BASE + 'Pink-Slime.glb'],       // keep slime
+    ['giant',    BASE + 'Mushroom-King.glb'],    // elite mushroom king
+    ['dragon',   BASE + 'Dragon-New.glb'],       // dragon (elite)
+    // Extras for new tiers later
+    ['wizard',   BASE + 'Wizard.glb'],
+    ['ghost',    BASE + 'Ghost.glb'],
+    ['spider',   BASE + 'Spider.glb'],
+    ['wolf',     BASE + 'Wolf.glb'],
+    ['dragon_evo', BASE + 'Dragon-Evolved.glb'],
+    // Forest bugs (CC-BY Poly by Google + CC0 Quaternius wasp)
+    ['ant',         BASE + 'Ant.glb'],
+    ['beetle',      BASE + 'Beetle.glb'],
+    ['ladybug',     BASE + 'Ladybug.glb'],
+    ['grasshopper', BASE + 'Grasshopper.glb'],
+    ['cockroach',   BASE + 'Cockroach.glb'],
+    ['mantis',      BASE + 'Mantis.glb'],
+    ['wasp',        BASE + 'Wasp.glb'],
+    ['bee',         BASE + 'Bee.glb'],
+    ['butterfly',   BASE + 'Butterfly.glb'],
+    ['caterpillar', BASE + 'Caterpillar.glb'],
+    // Env props (unchanged)
     ['rock',     BASE + 'Rock.glb'],
     ['tree',     BASE + 'Tree.glb'],
     ['bush',     BASE + 'Bush.glb'],
     ['dead_tree',BASE + 'Dead Tree.glb'],
+    ['chest',    BASE + 'chest.glb'],
+    ['chest_open', BASE + 'chest_open.glb'],
   ];
   return Promise.all(list.map(([k, p]) => _preload(k, p)));
 }

@@ -6,18 +6,38 @@ import * as THREE from 'three';
 import { state, resetState } from './state.js';
 import { WORLD, SPAWN } from './config.js';
 import { preloadAll } from './assets.js';
-import { createComposer, resizeComposer } from './postfx.js';
+import { createComposer, resizeComposer, BLOOM_LAYER } from './postfx.js';
 import { buildEnv } from './env.js';
-import { unlockAudio } from './audio.js';
+import { unlockAudio, startMusic, stopMusic, setMusicTier, setVolume, sfx } from './audio.js';
+import { getMeta, shopLevel, selectedCharacter, dailyChallengeConfig, commitDailyRun, equippedRelic, selectedStage } from './meta.js';
+import { CHARACTERS, STAGES } from './config.js';
 
 // Module imports (filled in by parallel agents)
-import { initInput, sampleInput } from './input.js';
-import { initHero, updateHero, takeDamage as heroTakeDamage } from './hero.js';
+import { initInput, sampleInput, getZoom, resetZoom } from './input.js';
+import { initHero, updateHero, updateDeathAnim, takeDamage as heroTakeDamage, rebuildHero } from './hero.js';
 import { initEnemies, updateEnemies, prewarmPools } from './enemies.js';
-import { initWeapons, tickWeapons, acquireWeapon, weaponChoices } from './weapons/index.js';
+import { initWeapons, tickWeapons, acquireWeapon, weaponChoices, _resetEvoAnnouncements } from './weapons/index.js';
 import { initXP, updateGems, dropGem, applyLevelUpChoice } from './xp.js';
-import { initSpawnDirector, tickSpawnDirector } from './spawnDirector.js';
-import { initUI, updateUI, showLevelUpModal, hideLevelUpModal, showDeathScreen, showStartScreen, hideStartScreen } from './ui.js';
+import { initSpawnDirector, tickSpawnDirector, secondsUntilNextMiniBoss } from './spawnDirector.js';
+import { initUI, updateUI, showLevelUpModal, hideLevelUpModal, showDeathScreen, showStartScreen, hideStartScreen, showOptions, hideOptions, isOptionsOpen, showTutorial, showBanner, hideShop, isShopOpen, hideGrimoire, isGrimoireOpen, showHouse, hideHouse, isHouseOpen } from './ui.js';
+import { initDamageNumbers, updateDamageNumbers } from './damageNumbers.js';
+import { initFX, updateFX, updatePickupRing } from './fx.js';
+import { initVFXBurst, updateVFXBurst, resetVFXBurst } from './vfxBurst.js';
+import { initChests, tickChests, resetChests } from './chest.js';
+import { initBossTelegraphs, updateBossTelegraphs, resetBossTelegraphs } from './bossTelegraphs.js';
+import { initDestructibles, resetDestructibles } from './destructibles.js';
+import { initPerfHUD, updatePerfHUD } from './perfHUD.js';
+import { initParticleTextures } from './particleTextures.js';
+import { initPickups, tickPickups, resetPickups } from './pickups.js';
+import { initBlobShadows, updateBlobShadows } from './blobShadows.js';
+import { updateEnemyProjectiles } from './enemyProjectiles.js';
+import { buildTown, enterTown, exitTown, tickTown, setGateHandler, setInteractionHandler } from './town.js';
+import { buildInterior, enterInterior, exitInterior, tickInterior, setInteriorHandler } from './interior.js';
+import { showSketchbook } from './sketchbook.js';
+import { showYarnDart } from './yarndart.js';
+import { showTeaSteep } from './teasteep.js';
+import { initTotems, tickTotems, resetTotems } from './totems.js';
+import { initPylons, tickPylons, resetPylons } from './pylons.js';
 
 // ── Bootstrap ─────────────────────────────────────────────────────────────────
 
@@ -25,11 +45,28 @@ const canvas = document.getElementById('game-canvas');
 let W = window.innerWidth, H = window.innerHeight;
 const ASPECT = () => W / H;
 
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+const renderer = new THREE.WebGLRenderer({
+  canvas, antialias: false, powerPreference: 'high-performance',
+  stencil: false, depth: true, alpha: false,
+});
+// DPR cap 1.75 — bloom-pass is the bottleneck, so 1.5x→1.75x is the sweet spot
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.75));
 renderer.setSize(W, H);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
-renderer.toneMapping = THREE.LinearToneMapping;
+// ACES Filmic rolls highlights into warm tones — kills the "everything blooms" feel.
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.05;
+// Soft shadow maps — enabled only for hero / chests / bosses (the "important"
+// actors); swarm enemies keep blob shadows for perf (200 caster meshes would
+// cost ~3-5ms/frame on a low-end machine).
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.shadowMap.autoUpdate = true;
+// renderer.info is now consumed by perfHUD.js (F3 overlay). We keep autoReset
+// off and call `renderer.info.reset()` once per frame (before the bloom pass),
+// so the counters accumulate across both passes — autoReset would reset
+// between passes and leak the bloom-pass numbers.
+renderer.info.autoReset = false;
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(WORLD.bgColor);
@@ -41,14 +78,16 @@ const camera = new THREE.OrthographicCamera(
    WORLD.cameraDistance,            -WORLD.cameraDistance,
    0.1, 800
 );
-camera.position.set(35, 50, 35);
+// Match original kitty-kaki forest camera offset (40, 60, 40 looking at origin).
+camera.position.set(40, 60, 40);
 camera.lookAt(0, 0, 0);
 
 state.scene = scene; state.camera = camera; state.renderer = renderer;
 
-// Post-FX composer
-const { composer, bloomPass, postFXPass } = createComposer(renderer, scene, camera, W, H);
-state.composer = composer; state.bloomPass = bloomPass; state.postFXPass = postFXPass;
+// Post-FX composer (with selective-bloom layer pipeline)
+const { composer, bloomComposer, bloomPass, postFXPass } = createComposer(renderer, scene, camera, W, H);
+state.composer = composer; state.bloomComposer = bloomComposer;
+state.bloomPass = bloomPass; state.postFXPass = postFXPass;
 
 // Resize
 window.addEventListener('resize', () => {
@@ -58,8 +97,27 @@ window.addEventListener('resize', () => {
   camera.left = -WORLD.cameraDistance * a; camera.right = WORLD.cameraDistance * a;
   camera.top = WORLD.cameraDistance;        camera.bottom = -WORLD.cameraDistance;
   camera.updateProjectionMatrix();
-  resizeComposer(composer, bloomPass, postFXPass, W, H);
+  resizeComposer(composer, bloomPass, postFXPass, W, H, bloomComposer);
 });
+
+// Render helper: bloom-only pass first (layer mask), then full scene.
+const _bgBlack = new THREE.Color(0x000000);
+function renderFrame() {
+  // Reset renderer.info once per frame so perfHUD reads bloom+composite total.
+  renderer.info.reset();
+  // 1) Bloom-only render — mask to BLOOM_LAYER, black background, no fog
+  const savedBg = scene.background;
+  const savedFog = scene.fog;
+  scene.background = _bgBlack;
+  scene.fog = null;
+  camera.layers.set(BLOOM_LAYER);
+  bloomComposer.render();
+  // 2) Restore + full scene composite
+  scene.background = savedBg;
+  scene.fog = savedFog;
+  camera.layers.enableAll();
+  composer.render();
+}
 
 // Unlock audio on first interaction
 ['click', 'touchstart', 'keydown'].forEach(ev =>
@@ -70,12 +128,26 @@ window.addEventListener('resize', () => {
 
 async function boot() {
   showStartScreen('Loading…');
+  initParticleTextures();   // synchronous canvas → texture, no network
   await preloadAll();
 
-  state.envGroup = buildEnv(scene);
+  state.envGroup = buildEnv(scene, renderer);
+  buildTown(scene);
+  buildInterior(scene);
 
   initInput();
   initUI();
+  initDamageNumbers();
+  initFX(scene);
+  initVFXBurst(scene);
+  initTotems(scene);
+  initPylons(scene);
+  initChests(scene);
+  initPickups(scene);
+  initBossTelegraphs(scene);
+  initDestructibles(scene);
+  initPerfHUD();
+  initBlobShadows(scene);
   initHero(scene);
   initEnemies(scene);
   initWeapons();
@@ -84,65 +156,421 @@ async function boot() {
 
   prewarmPools();   // create pooled meshes off-screen (hides first-horde stall)
 
-  // Give starting weapon
-  acquireWeapon('orbitals');
-
   resetState();
+  resetZoom();      // every run starts fully zoomed in; powerup unlocks notches
+  resetChests();
+  resetPickups();
+  applyMetaUpgrades();
+
+  // Give the character's starting weapon (defaults to orbitals if none set).
+  acquireWeapon(state.run.starterWeapon || 'orbitals');
+  for (let i = 0; i < (state.run.cellarLv || 0); i++) acquireWeapon(state.run.starterWeapon || 'orbitals');
+
   showStartScreen('Click or press SPACE to start');
+  // Apply saved options at boot
+  const meta = getMeta();
+  state._optShakeMul = meta.optShake;
+  setVolume(meta.optVolume);
+
   const start = () => {
-    if (state.started) return;
+    if (state.started && state.mode === 'run') return;
     state.started = true;
+    if (state.mode === 'town') exitTown();
+    state.mode = 'run';
+    // Player may have changed character on the picker — rebuild hero so the
+    // placeholder tint reflects the current selection.
+    rebuildHero(state.scene);
     hideStartScreen();
     state.run.startedAt = performance.now();
+    if (meta.optMusic) startMusic();
+    setMusicTier(0);
+    if (state.modes && state.modes.bossRush) {
+      showBanner('⚔ BOSS RUSH ⚔', 3.0, '#ff7a7a');
+    } else if (state.modes && state.modes.daily) {
+      showBanner('★ DAILY CHALLENGE ★', 3.0, '#c87bff');
+    }
+    // First-run tutorial: show 5s after start so the player has the screen oriented.
+    if (!meta.seenTutorial) {
+      setTimeout(() => { if (!state.gameOver) showTutorial(); }, 5000);
+    }
   };
-  window.addEventListener('click', start);
-  window.addEventListener('keydown', e => { if (e.code === 'Space') start(); });
+  setGateHandler(start);
+  setInteractionHandler('house', () => enterInterior());
+  setInteriorHandler('exit', () => { exitInterior(); enterTown(); });
+  setInteriorHandler('house', () => showHouse());
+  setInteriorHandler('sketch', () => showSketchbook());
+  setInteriorHandler('yarn',   () => showYarnDart());
+  setInteriorHandler('tea',    () => showTeaSteep());
+  window.kkStartRun = start;
+  window.kkEnterTown = () => {
+    hideStartScreen();
+    enterTown();
+    state.started = true;   // bypass start-screen idle render path
+  };
+  // Click/Space only triggers a run when on the start screen (menu mode).
+  // In town mode they're no-ops — player uses E at the gate.
+  window.addEventListener('click', () => { if (state.mode === 'menu') start(); });
+  window.addEventListener('keydown', e => { if (e.code === 'Space' && state.mode === 'menu') start(); });
+  window.addEventListener('keydown', e => {
+    if (e.code === 'Escape') {
+      if (isHouseOpen()) hideHouse();
+      else if (state.mode === 'interior') { exitInterior(); enterTown(); }
+      else if (isShopOpen()) hideShop();
+      else if (isGrimoireOpen()) hideGrimoire();
+      else if (isOptionsOpen()) hideOptions();
+      else if (state.started && !state.gameOver) showOptions();
+    }
+  });
+
+  // Expose restart for the death-screen RETRY button. Avoids a full page reload
+  // (which throws away the prewarmed pools + cached GLBs).
+  window.kkRestart = restartRun;
+  window.__kkNextMiniBoss = secondsUntilNextMiniBoss;
+}
+
+function restartRun() {
+  // Return active enemies to pools + hide them
+  const active = state.enemies.active;
+  for (let i = 0; i < active.length; i++) {
+    const e = active[i];
+    if (!e || !e.mesh) continue;
+    e.alive = false;
+    e.mesh.visible = false;
+    if (e._tellRing) {
+      if (e._tellRing.parent) e._tellRing.parent.remove(e._tellRing);
+      e._tellRing = null;
+    }
+    // Totems + pylons aren't pooled — unique geometries. Detach from scene;
+    // reset* functions clear their respective lists.
+    if (e.isTotem || e.isPylon) {
+      if (e.mesh.parent) e.mesh.parent.remove(e.mesh);
+      continue;
+    }
+    const pool = state.enemies.pools[e.glbKey] || (state.enemies.pools[e.glbKey] = []);
+    pool.push(e.mesh);
+  }
+  active.length = 0;
+  if (state.enemies.spatial && typeof state.enemies.spatial.clear === 'function') {
+    state.enemies.spatial.clear();
+  }
+  // Clear projectiles (their meshes were added directly to scene)
+  for (const p of state.projectiles.active) {
+    if (p.mesh && p.mesh.parent) p.mesh.parent.remove(p.mesh);
+  }
+  state.projectiles.active.length = 0;
+  // Clear enemy projectiles too
+  for (const p of state.enemyProjectiles.active) {
+    if (p.mesh && p.mesh.parent) p.mesh.parent.remove(p.mesh);
+  }
+  state.enemyProjectiles.active.length = 0;
+  // Clear webs (visual is hidden by tickWebs since list is empty)
+  if (state.webs && state.webs.list) state.webs.list.length = 0;
+
+  // Reset core state (clears weapons, fillerCounts, etc.)
+  resetState();
+  resetZoom();
+  resetChests();
+  resetPickups();
+  resetVFXBurst();
+  resetTotems();
+  resetPylons();
+  resetBossTelegraphs();
+  resetDestructibles();
+  initSpawnDirector();
+  _resetEvoAnnouncements();
+  _resetSecretChecks();
+  // Rebuild hero mesh so a newly-picked character's placeholder tint applies.
+  rebuildHero(state.scene);
+  applyMetaUpgrades();
+
+  // Re-give the selected character's starter weapon
+  acquireWeapon(state.run.starterWeapon || 'orbitals');
+  for (let i = 0; i < (state.run.cellarLv || 0); i++) acquireWeapon(state.run.starterWeapon || 'orbitals');
+
+  // Restore hero visuals (death anim mutated opacity + scale)
+  if (state.hero.mesh) {
+    state.hero.mesh.traverse(o => {
+      if (o.isMesh && o.material) {
+        const mats = Array.isArray(o.material) ? o.material : [o.material];
+        for (const m of mats) {
+          if (m.opacity !== undefined) m.opacity = 1;
+        }
+      }
+    });
+  }
+  state._deathShown = false;
+  state.started = true;
+  state.run.startedAt = performance.now();
 }
 
 // ── Main loop ─────────────────────────────────────────────────────────────────
 
 let _lastT = performance.now();
+// Per-run one-shot secret-check guards (reset on restart via _resetSecretChecks)
+let _checkedUntouchable = false;
+let _checkedMarathon = false;
+let _checkedHoarder = false;
+export function _resetSecretChecks() {
+  _checkedUntouchable = false;
+  _checkedMarathon = false;
+  _checkedHoarder = false;
+}
+
+// Apply the player's purchased shop upgrades to hero stats at run start.
+// Called after resetState (which wipes mutators).
+function applyMetaUpgrades() {
+  const h = state.hero;
+  const meta = getMeta();
+  // Daily-challenge override: force today's character + skip shop bonuses for
+  // a level playing field across the leaderboard.
+  const dailyOn = !!(meta && meta.optDaily);
+  let char = selectedCharacter(CHARACTERS);
+  let dailyCfg = null;
+  if (dailyOn) {
+    dailyCfg = dailyChallengeConfig(CHARACTERS.map(c => c.id));
+    char = CHARACTERS.find(c => c.id === dailyCfg.character) || char;
+  }
+  if (char) {
+    h.hpMax = char.hpMax || h.hpMax;
+    h.hp = h.hpMax;
+    for (const k of Object.keys(char.statMul || {})) {
+      h.statMul[k] = (h.statMul[k] || 1) * char.statMul[k];
+    }
+    state.run.character = char.id;
+    state.run.starterWeapon = char.starter;
+  }
+  state.run.daily = dailyOn ? dailyCfg : null;
+
+  if (!dailyOn) {
+    // Shop upgrades stack on top (skipped in daily mode for fair leaderboard)
+    const hpLv = shopLevel('hp');
+    if (hpLv > 0) { h.hpMax += 10 * hpLv; h.hp = h.hpMax; }
+    const magLv = shopLevel('magnet');
+    if (magLv > 0) h.statMul.magnet *= (1 + 0.15 * magLv);
+    const spdLv = shopLevel('speed');
+    if (spdLv > 0) h.statMul.moveSpeed *= (1 + 0.05 * spdLv);
+    const dmgLv = shopLevel('damage');
+    if (dmgLv > 0) h.statMul.dmg *= (1 + 0.05 * dmgLv);
+  } else {
+    // Daily modifier: apply a small thematic tweak so each day plays distinctly
+    switch (dailyCfg.modifier) {
+      case 'LOW HP':       h.hpMax = Math.max(30, Math.floor(h.hpMax * 0.6)); h.hp = h.hpMax; break;
+      case 'SWARM DAY':    state.run.dailySpawnMul = 1.35; break;
+      case 'HARDER SPAWNS':state.run.dailyHpMul = 1.5; break;
+      case 'FAST CHESTS':  state.run.dailyChestMul = 0.5; break;
+      // 'NO SHOP BONUSES' is the implicit default — already covered above.
+    }
+  }
+
+  // ── House upgrades (Embers currency) — apply regardless of daily mode since
+  // they represent long-term home investment, not run-specific shop bonuses.
+  // Some upgrades still respect daily for fairness (handled per-track below).
+  const house = (meta.house || {});
+  const kitchenLv  = house.kitchen  || 0;
+  const cellarLv   = house.cellar   || 0;
+  const gardenLv   = house.garden   || 0;
+  const shrineLv   = house.shrine   || 0;
+  const apoLv      = house.apothecary || 0;
+  if (kitchenLv  > 0 && !dailyOn) { h.hpMax += 20 * kitchenLv; h.hp = h.hpMax; }
+  // Cellar gets applied after acquireWeapon runs (see below). Stash on run.
+  state.run.cellarLv = (cellarLv > 0 && !dailyOn) ? cellarLv : 0;
+  if (gardenLv   > 0 && !dailyOn) state.run.heartPotency = 1 + 0.5 * gardenLv;
+  if (shrineLv   > 0 && !dailyOn) h.rerolls += shrineLv;
+  if (apoLv      > 0 && !dailyOn) h.regenPerSec += 0.5 * apoLv;
+
+  // Equipped relic affixes stack on top of shop/character (skipped in daily).
+  if (!dailyOn) {
+    const relic = equippedRelic();
+    if (relic && relic.affixes) {
+      for (const a of relic.affixes) {
+        if (a.stat === 'hpMax') {
+          h.hpMax += a.value;
+          h.hp = h.hpMax;
+        } else if (h.statMul && a.stat in h.statMul) {
+          // Negative values (cooldown) compose multiplicatively against the
+          // existing mul, so e.g. -0.15 → ×0.85.
+          if (a.value < 0) h.statMul[a.stat] *= (1 + a.value);
+          else             h.statMul[a.stat] *= (1 + a.value);
+        }
+      }
+      state.run.equippedRelic = relic;
+    }
+  }
+
+  // Mode flags snapshot
+  state.modes.hyper = !!(meta.unlockedHyper && meta.optHyper) && !dailyOn;
+  state.modes.endless = !!(meta.unlockedEndless && meta.optEndless) && !dailyOn;
+  state.modes.daily = dailyOn;
+  // Boss Rush is gated by first-victory (same unlock as Hyper), and is
+  // incompatible with Daily (Daily picks its own modifier set).
+  state.modes.bossRush = !!(meta.unlockedHyper && meta.optBossRush) && !dailyOn;
+
+  // Stage selection — modifies enemy HP, final-boss timing, ground tint.
+  // Daily forces stage 1 so the leaderboard is fair.
+  const stage = dailyOn ? STAGES[0] : selectedStage(STAGES);
+  state.run.stage = stage;
+  if (stage && stage.id !== 'forest') {
+    state.run.stageHpMul = stage.enemyHpMul || 1;
+    state.run.stageFinalBossAt = stage.finalBossAt || null;
+  } else {
+    state.run.stageHpMul = 1;
+    state.run.stageFinalBossAt = null;
+  }
+  // Repaint the ground tint for the chosen stage.
+  if (state.envGroup && state.envGroup.userData) {
+    if (typeof state.envGroup.userData.applyStageTint === 'function') {
+      state.envGroup.userData.applyStageTint(stage);
+    }
+  }
+}
+
+function applyShake(realDt) {
+  if (state.fx.shake <= 0.001) return;
+  const opt = (state._optShakeMul !== undefined) ? state._optShakeMul : 1.0;
+  const s = state.fx.shake * opt;
+  const t = state.time.real * 60;
+  const k = 1.2 * s;
+  camera.position.x += Math.sin(t * 1.7) * k;
+  camera.position.z += Math.cos(t * 2.3) * k;
+  state.fx.shake *= Math.pow(0.0008, realDt);
+}
 
 function frame(now) {
   const realDt = Math.min(0.05, (now - _lastT) / 1000);
   _lastT = now;
   state.time.real += realDt;
 
+  // Interior mode — close iso camera over a small room.
+  if (state.mode === 'interior') {
+    sampleInput();
+    updateHero(realDt);
+    updateFX(realDt);
+    updateVFXBurst(realDt);
+    updatePickupRing();
+    updateBlobShadows();
+    tickInterior(realDt);
+    // Tighter camera + frustum for the interior — frames the room intimately.
+    const hp = state.hero.pos;
+    camera.position.x += (hp.x + 18 - camera.position.x) * 0.18;
+    camera.position.z += (hp.z + 18 - camera.position.z) * 0.18;
+    camera.position.y = 32;
+    camera.lookAt(hp.x, 0.7, hp.z);
+    const _ia = ASPECT();
+    const _ihalf = 9;
+    camera.left = -_ihalf * _ia; camera.right = _ihalf * _ia;
+    camera.top  =  _ihalf;       camera.bottom = -_ihalf;
+    camera.updateProjectionMatrix();
+    if (state.postFXPass) state.postFXPass.uniforms.time.value = state.time.real;
+    renderFrame();
+    requestAnimationFrame(frame);
+    return;
+  }
+
+  // Town hub mode — stripped-down tick: input + hero + fx + camera + render.
+  if (state.mode === 'town') {
+    sampleInput();
+    updateHero(realDt);
+    updateFX(realDt);
+    updateVFXBurst(realDt);
+    updatePickupRing();
+    updateBlobShadows();
+    tickTown(realDt);
+    // Camera follows hero (same offset as in-game so the transition is seamless)
+    const hp = state.hero.pos;
+    camera.position.x += (hp.x + 40 - camera.position.x) * WORLD.cameraLerp;
+    camera.position.z += (hp.z + 40 - camera.position.z) * WORLD.cameraLerp;
+    camera.position.y = 60;
+    camera.lookAt(hp.x, 0, hp.z);
+    if (state.envGroup && state.envGroup.userData.sun) {
+      const sun = state.envGroup.userData.sun;
+      sun.position.set(hp.x + 60, 80, hp.z + 40);
+      sun.target.position.set(hp.x, 0, hp.z);
+      sun.target.updateMatrixWorld();
+    }
+    if (state.postFXPass) state.postFXPass.uniforms.time.value = state.time.real;
+    renderFrame();
+    requestAnimationFrame(frame);
+    return;
+  }
+
   if (!state.started) {
-    composer.render();
+    renderFrame();
     requestAnimationFrame(frame);
     return;
   }
 
   if (state.pendingLevelUp || state.gameOver || state.time.paused) {
-    // Frozen — render only, no logic, no time progression
+    // Frozen — render only. Death animation still ticks on real time.
+    if (state.gameOver) {
+      updateDeathAnim(realDt);
+      updateDamageNumbers(realDt);
+      applyShake(realDt);
+    }
     if (state.postFXPass) state.postFXPass.uniforms.time.value = state.time.real;
-    composer.render();
+    renderFrame();
     requestAnimationFrame(frame);
     return;
   }
 
-  state.time.dt = realDt;
-  state.time.game += realDt;
+  // Hit-stop: drain timer on real time, scale gameplay dt to 0 while active.
+  // Damage numbers still tick on realDt so they don't visually stall.
+  let logicDt = realDt;
+  if (state.fx.hitStop > 0) {
+    state.fx.hitStop = Math.max(0, state.fx.hitStop - realDt);
+    logicDt = 0;
+  }
+  state.time.dt = logicDt;
+  state.time.game += logicDt;
 
   // ── Logic phase ──
   sampleInput();
-  updateHero(realDt);
-  tickSpawnDirector(realDt);
-  updateEnemies(realDt);
-  tickWeapons(realDt);
-  updateGems(realDt);
+  updateHero(logicDt);
+  tickSpawnDirector(logicDt);
+  updateEnemies(logicDt);
+  tickWeapons(logicDt);
+  updateGems(logicDt);
+  updateFX(logicDt);
+  updateVFXBurst(logicDt);
+  updatePickupRing();
+  updateEnemyProjectiles(logicDt);
+  tickChests(logicDt);
+  updateBossTelegraphs(logicDt);
+  tickTotems(logicDt);
+  tickPylons(logicDt);
+  tickPickups(logicDt);
+  updateBlobShadows();
+  updateDamageNumbers(realDt);
 
-  // FX decay
+  // FX decay (real time so feedback fades even during hit-stop)
   state.fx.chromaticPulse *= Math.pow(0.05, realDt);
   state.fx.bloomBoost     *= Math.pow(0.10, realDt);
 
-  // Camera follow hero (lerp xz, keep height + offset)
+  // Camera follow hero (lerp xz, keep height + offset matching original game)
   const hp = state.hero.pos;
   const camLerp = WORLD.cameraLerp;
-  camera.position.x += (hp.x + 35 - camera.position.x) * camLerp;
-  camera.position.z += (hp.z + 35 - camera.position.z) * camLerp;
+  camera.position.x += (hp.x + 40 - camera.position.x) * camLerp;
+  camera.position.z += (hp.z + 40 - camera.position.z) * camLerp;
+  camera.position.y = 60;
   camera.lookAt(hp.x, 0, hp.z);
+
+  // Sun + shadow-camera follow: keep the directional light at a fixed offset
+  // from the hero so the 80-unit shadow frustum always contains the action.
+  if (state.envGroup && state.envGroup.userData.sun) {
+    const sun = state.envGroup.userData.sun;
+    sun.position.set(hp.x + 60, 80, hp.z + 40);
+    sun.target.position.set(hp.x, 0, hp.z);
+    sun.target.updateMatrixWorld();
+  }
+
+  applyShake(realDt);
+
+  // Apply zoom — adjusts the orthographic frustum size each frame.
+  const z = getZoom();
+  const a = ASPECT();
+  const half = WORLD.cameraDistance / z;
+  camera.left = -half * a; camera.right = half * a;
+  camera.top  =  half;     camera.bottom = -half;
+  camera.updateProjectionMatrix();
 
   // Update post-FX uniforms
   if (state.postFXPass) {
@@ -150,12 +578,44 @@ function frame(now) {
     state.postFXPass.uniforms.chromatic.value = 0.0008 + state.fx.chromaticPulse * 0.004;
   }
   if (state.bloomPass) {
-    state.bloomPass.strength = 1.2 + state.fx.bloomBoost * 0.8;
+    const vfxMul = (getMeta().optVfx !== undefined ? getMeta().optVfx : 1.0);
+    state.bloomPass.strength = (0.30 + state.fx.bloomBoost * 0.30) * vfxMul;
+  }
+
+  // Music intensity: 0 in first 20s, 1 mid-game, 2 once final boss is up
+  const hasFinalBoss = state.enemies.active.some(e => e.isFinalBoss);
+  setMusicTier(hasFinalBoss ? 2 : (state.time.game > 20 ? 1 : 0));
+
+  // Secret-unlock time checks (cheap; functions self-dedupe via meta.secrets)
+  if (state.run.flawless && state.time.game >= 300 && !_checkedUntouchable) {
+    _checkedUntouchable = true;
+    import('./ui.js').then(({ trySecret }) => trySecret('untouchable_5min'));
+  }
+  if (state.time.game >= 1500 && !_checkedMarathon) {
+    _checkedMarathon = true;
+    import('./ui.js').then(({ trySecret }) => trySecret('marathon'));
+  }
+  if (!_checkedHoarder) {
+    const m = getMeta();
+    if (m.lifetime && (m.lifetime.coinsEverEarned || 0) >= 500) {
+      _checkedHoarder = true;
+      import('./ui.js').then(({ trySecret }) => trySecret('hoarder'));
+    }
+  }
+
+  // Color grade: subtle red shadow tint during final boss (urgent vibe).
+  if (state.postFXPass && state.postFXPass.uniforms.lift) {
+    const liftU = state.postFXPass.uniforms.lift.value;
+    const targetR = hasFinalBoss ? 0.05 : 0.00;
+    const targetB = hasFinalBoss ? -0.02 : 0.02;
+    liftU.x += (targetR - liftU.x) * 0.04;
+    liftU.z += (targetB - liftU.z) * 0.04;
   }
 
   updateUI();
 
-  composer.render();
+  renderFrame();
+  updatePerfHUD();
   requestAnimationFrame(frame);
 }
 

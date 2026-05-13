@@ -16,14 +16,23 @@
  *   - Boss    every SPAWN.bossIntervalSec   → one elite at 5× HP on a wider ring.
  */
 import { state } from './state.js';
-import { ENEMY_TIERS, SPAWN } from './config.js';
+import { ENEMY_TIERS, SPAWN, STAGE } from './config.js';
 import { spawnEnemy } from './enemies.js';
+import { showBanner } from './ui.js';
+import { sfx } from './audio.js';
+import { spawnChestNearHero } from './chest.js';
+import { shopLevel } from './meta.js';
+import { nameForMiniBoss, FINAL_BOSS_NAME } from './bossTelegraphs.js';
 
 // ── Module-local director state ──────────────────────────────────────────────
 let _acc = 0;
 let _nextHorde = SPAWN.hordeIntervalSec;
-let _nextBoss = SPAWN.bossIntervalSec;
+let _nextChest = SPAWN.chestIntervalSec;
 let _lastSeenTime = 0;
+let _finalBossWarned = false;
+let _finalBossSpawned = false;
+let _miniBossIdx = 0;
+let _miniBossWarnedFor = -1;
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 function weightedPick(tiers) {
@@ -62,11 +71,62 @@ function spawnOnRing(tier, angle, radiusMul = 1) {
 export function initSpawnDirector() {
   _acc = 0;
   _nextHorde = SPAWN.hordeIntervalSec;
-  _nextBoss = SPAWN.bossIntervalSec;
+  _nextChest = SPAWN.chestIntervalSec;
   _lastSeenTime = 0;
+  _finalBossWarned = false;
+  _finalBossSpawned = false;
+  _miniBossIdx = 0;
+  _miniBossWarnedFor = -1;
+}
+
+function spawnMiniBoss() {
+  // Pick the strongest elite the player is allowed to fight at current D(t)
+  const D = computeDifficulty(state.time.game);
+  const eliteAllowed = ENEMY_TIERS.filter(t => t.elite && t.minD <= D + 1);
+  const pool = eliteAllowed.length > 0 ? eliteAllowed : ENEMY_TIERS.filter(t => t.elite);
+  if (pool.length === 0) return;
+  const choice = pool[Math.floor(Math.random() * pool.length)];
+  const buffed = {
+    ...choice,
+    hp: choice.hp * STAGE.miniBossHpMul,
+    scale: (choice.scale || 1) * STAGE.miniBossScaleMul,
+    isMiniBoss: true,
+  };
+  const angle = Math.random() * Math.PI * 2;
+  spawnOnRing(buffed, angle, 1.3);
+  state.fx.chromaticPulse = 0.9;
+  state.fx.bloomBoost = 0.6;
+  state.fx.shake = Math.max(state.fx.shake || 0, 0.5);
 }
 
 export function resetSpawnDirector() { initSpawnDirector(); }
+
+/** Returns seconds-until next mini-boss, or null if all 3 are done / final boss next. */
+export function secondsUntilNextMiniBoss() {
+  if (_miniBossIdx >= STAGE.miniBossSchedule.length) return null;
+  const due = STAGE.miniBossSchedule[_miniBossIdx];
+  return Math.max(0, due - state.time.game);
+}
+
+function spawnFinalBoss() {
+  // Pick the highest-minD elite (dragon if unlocked, else giant)
+  const elites = ENEMY_TIERS.filter(t => t.elite);
+  const choice = elites.reduce((best, cur) => (!best || cur.minD > best.minD) ? cur : best, null);
+  if (!choice) return;
+  const buffed = {
+    ...choice,
+    hp: choice.hp * STAGE.finalBossHpMul,
+    scale: (choice.scale || 1) * STAGE.finalBossScaleMul,
+    isFinalBoss: true,
+  };
+  const angle = Math.random() * Math.PI * 2;
+  const r = SPAWN.ringRadius * 1.5;
+  const hp = state.hero.pos;
+  spawnEnemy(buffed, hp.x + Math.cos(angle) * r, hp.z + Math.sin(angle) * r);
+  state.fx.chromaticPulse = 1.0;
+  state.fx.bloomBoost = 1.0;
+  state.fx.shake = 0.8;
+}
 
 export function tickSpawnDirector(dt) {
   const t = state.time.game;
@@ -75,9 +135,62 @@ export function tickSpawnDirector(dt) {
   if (t < _lastSeenTime) {
     _acc = 0;
     _nextHorde = SPAWN.hordeIntervalSec;
-    _nextBoss = SPAWN.bossIntervalSec;
+    _nextChest = SPAWN.chestIntervalSec;
+    _finalBossWarned = false;
+    _finalBossSpawned = false;
+    _miniBossIdx = 0;
+    _miniBossWarnedFor = -1;
   }
   _lastSeenTime = t;
+
+  // Boss-rush mode compresses the boss schedule and pauses the cannon-fodder
+  // swarm to focus entirely on boss fights. Stage 2+ can also shift the
+  // final-boss time (Twilight Hollow = 12 min instead of 15).
+  const bossRush  = !!(state.modes && state.modes.bossRush);
+  const stageFB   = state.run && state.run.stageFinalBossAt;
+  const miniSched = bossRush ? [25, 75, 135] : STAGE.miniBossSchedule;
+  const finalBossAt = bossRush
+    ? 200
+    : (stageFB != null ? stageFB : STAGE.finalBossAt);
+
+  // ── Mini-boss schedule ──
+  if (_miniBossIdx < miniSched.length) {
+    const due = miniSched[_miniBossIdx];
+    // Warn first
+    if (_miniBossWarnedFor !== _miniBossIdx && t >= due - STAGE.miniBossWarnSec) {
+      _miniBossWarnedFor = _miniBossIdx;
+      showBanner('ELITE INCOMING', 3.0, '#ff8855');
+      if (sfx && sfx.bossWarn) sfx.bossWarn();
+    }
+    // Spawn at due time
+    if (t >= due) {
+      spawnMiniBoss();
+      const named = nameForMiniBoss(_miniBossIdx);
+      showBanner(`${named.name} — ${named.subtitle.toUpperCase()}`, 2.6, '#ff8855');
+      _miniBossIdx++;
+    }
+  }
+
+  // ── Periodic chest spawn ──
+  if (t >= _nextChest) {
+    spawnChestNearHero(7, 14);
+    // Luck shop upgrade speeds up the chest cadence by 3% per level.
+    const luckMul = 1 - 0.03 * shopLevel('luck');
+    const dailyMul = state.run && state.run.dailyChestMul ? state.run.dailyChestMul : 1;
+    _nextChest = t + SPAWN.chestIntervalSec * luckMul * dailyMul;
+  }
+
+  // ── Final boss warning + spawn ──
+  if (!_finalBossWarned && t >= finalBossAt - STAGE.finalBossWarnSec) {
+    _finalBossWarned = true;
+    showBanner('A POWERFUL FOE APPROACHES', 4.5, '#ff4444');
+    if (sfx && sfx.bossWarn) sfx.bossWarn();
+  }
+  if (!_finalBossSpawned && t >= finalBossAt) {
+    _finalBossSpawned = true;
+    spawnFinalBoss();
+    showBanner(`${FINAL_BOSS_NAME.name} — ${FINAL_BOSS_NAME.subtitle.toUpperCase()}`, 3.0, '#ffe14a');
+  }
 
   _acc += dt;
   if (_acc < SPAWN.tickIntervalSec) return;
@@ -90,10 +203,15 @@ export function tickSpawnDirector(dt) {
   if (allowedTiers.length === 0) return;
 
   // ── Continuous top-up ──
-  const target = Math.min(
-    SPAWN.targetAliveCap,
-    SPAWN.targetAliveBase + D * SPAWN.targetAlivePerD
-  );
+  const swarmMul = state.run && state.run.dailySpawnMul ? state.run.dailySpawnMul : 1;
+  // Boss rush: tiny ambient swarm (3-4 alive) so the player still has XP and
+  // pickups, but the focus is the bosses.
+  const target = bossRush
+    ? 4
+    : Math.min(
+        SPAWN.targetAliveCap,
+        (SPAWN.targetAliveBase + D * SPAWN.targetAlivePerD) * swarmMul
+      );
   const deficit = target - state.enemies.active.length;
   if (deficit > 0) {
     const n = Math.min(SPAWN.spawnBatchPerTick, Math.ceil(deficit));
@@ -124,26 +242,4 @@ export function tickSpawnDirector(dt) {
     _nextHorde += SPAWN.hordeIntervalSec;
   }
 
-  // ── Boss event ──
-  if (t >= _nextBoss) {
-    let bossTier = null;
-    const eliteAllowed = allowedTiers.filter(tier => tier.elite);
-    if (eliteAllowed.length > 0) {
-      bossTier = weightedPick(eliteAllowed);
-    } else {
-      // Fallback: highest-minD allowed tier
-      bossTier = allowedTiers.reduce((best, cur) =>
-        (!best || cur.minD > best.minD) ? cur : best, null);
-    }
-
-    if (bossTier) {
-      const buffed = { ...bossTier, hp: bossTier.hp * 5 };
-      const angle = Math.random() * Math.PI * 2;
-      spawnOnRing(buffed, angle, 1.2);
-
-      state.fx.chromaticPulse = 1.0;
-      state.fx.bloomBoost = 1.0;
-    }
-    _nextBoss += SPAWN.bossIntervalSec;
-  }
 }

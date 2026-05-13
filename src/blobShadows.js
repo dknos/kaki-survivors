@@ -1,0 +1,86 @@
+/**
+ * Fake "blob shadow" decals under hero + every active enemy.
+ * One InstancedMesh of a soft-blur dark circle texture lying at y=0.01.
+ * Gives ~90% of the depth cue of real shadows for ~0.3ms total cost.
+ */
+import * as THREE from 'three';
+import { state } from './state.js';
+
+const CAP = 320;
+const Y_DECAL = 0.02;
+
+const _m4 = new THREE.Matrix4();
+const _v3 = new THREE.Vector3();
+const _flatX = new THREE.Quaternion().setFromEuler(new THREE.Euler(-Math.PI / 2, 0, 0));
+const _zeroScale = new THREE.Vector3(0, 0, 0);
+
+let _inst = null;
+let _dirty = false;
+
+function _makeShadowTexture() {
+  // Soft radial gradient — black center fading to transparent.
+  const c = document.createElement('canvas');
+  c.width = c.height = 128;
+  const ctx = c.getContext('2d');
+  const g = ctx.createRadialGradient(64, 64, 0, 64, 64, 64);
+  g.addColorStop(0.00, 'rgba(0,0,0,0.55)');
+  g.addColorStop(0.40, 'rgba(0,0,0,0.35)');
+  g.addColorStop(0.75, 'rgba(0,0,0,0.10)');
+  g.addColorStop(1.00, 'rgba(0,0,0,0.00)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, 128, 128);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.generateMipmaps = true;
+  t.minFilter = THREE.LinearMipmapLinearFilter;
+  return t;
+}
+
+export function initBlobShadows(scene) {
+  if (_inst) return;
+  const geo = new THREE.PlaneGeometry(1, 1);
+  const mat = new THREE.MeshBasicMaterial({
+    map: _makeShadowTexture(),
+    transparent: true,
+    depthWrite: false,
+    blending: THREE.NormalBlending,
+    color: 0xffffff,
+  });
+  _inst = new THREE.InstancedMesh(geo, mat, CAP);
+  _inst.count = CAP;
+  _inst.frustumCulled = false;
+  _inst.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  // Render shadows BEFORE the colored meshes so transparency sorts cleanly.
+  _inst.renderOrder = -1;
+  for (let i = 0; i < CAP; i++) {
+    _m4.compose(_v3.set(0, -1000, 0), _flatX, _zeroScale);
+    _inst.setMatrixAt(i, _m4);
+  }
+  _inst.instanceMatrix.needsUpdate = true;
+  scene.add(_inst);
+}
+
+export function updateBlobShadows() {
+  if (!_inst) return;
+  let i = 0;
+  // Hero no longer gets a blob — it casts a real shadow now. Same for any
+  // enemy with castShadow on (elites/mini/final bosses).
+  const arr = state.enemies.active;
+  for (let k = 0; k < arr.length && i < CAP; k++) {
+    const e = arr[k];
+    if (!e.alive) continue;
+    if (e.mesh && e.mesh.userData && e.mesh.userData._castSet) continue;
+    const ms = e.mesh ? e.mesh.scale.x : 1;
+    // size ≈ horizontal footprint of the model
+    const r = Math.max(0.6, ms * 0.9);
+    _v3.set(e.mesh.position.x, Y_DECAL, e.mesh.position.z);
+    _m4.compose(_v3, _flatX, new THREE.Vector3(r, r, r));
+    _inst.setMatrixAt(i++, _m4);
+  }
+  // Hide unused slots
+  for (; i < CAP; i++) {
+    _m4.compose(_v3.set(0, -1000, 0), _flatX, _zeroScale);
+    _inst.setMatrixAt(i, _m4);
+  }
+  _inst.instanceMatrix.needsUpdate = true;
+}

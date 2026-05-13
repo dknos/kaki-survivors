@@ -93,4 +93,85 @@ export const sfx = {
   heroHit:  () => { sweep(440, 110, 0.18, 'sawtooth', 0.45); noiseBurst(0.10, 0.30, 600); },
   death:    () => { sweep(330, 60, 0.6, 'sawtooth', 0.55); noiseBurst(0.5, 0.35, 400); },
   explosion:() => { noiseBurst(0.25, 0.50, 500); sweep(220, 60, 0.25, 'sawtooth', 0.40); },
+  victory:  () => {
+    // Triumphant arpeggio
+    const notes = [392, 523, 659, 784, 1047];
+    notes.forEach((f, i) => setTimeout(() => sweep(f * 0.5, f, 0.25, 'triangle', 0.5), i * 100));
+    setTimeout(() => sweep(1047, 1568, 0.6, 'triangle', 0.6), 600);
+  },
+  bossWarn: () => {
+    [220, 220, 220].forEach((f, i) => setTimeout(() => tone(f, 0.18, 'sawtooth', 0.4), i * 180));
+  },
 };
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Procedural music: a bass-drone loop that ramps intensity with difficulty.
+// One oscillator per voice, scheduled in 8-beat bars at ~110bpm.
+// ─────────────────────────────────────────────────────────────────────────────
+let _musicPlaying = false;
+let _musicTier = 0;            // 0=calm, 1=combat, 2=boss
+let _musicTimer = null;
+let _beat = 0;
+
+// Pentatonic minor in A — guaranteed not-sour. Bass notes drive the loop.
+const A_MINOR_PENT = [110, 131, 147, 165, 196, 220, 262, 294]; // A2..D4
+
+function playNote(f, dur, type, vol) {
+  if (!_enabled || !_ctx) return;
+  if (_ctx.state !== 'running') return;
+  const t = _ctx.currentTime;
+  const osc = _ctx.createOscillator();
+  const g = _ctx.createGain();
+  osc.type = type;
+  osc.frequency.setValueAtTime(f, t);
+  g.gain.setValueAtTime(0, t);
+  g.gain.linearRampToValueAtTime(vol, t + 0.02);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  osc.connect(g).connect(_master);
+  osc.start(t);
+  osc.stop(t + dur + 0.02);
+}
+
+function _musicStep() {
+  if (!_musicPlaying) return;
+  const tier = _musicTier;
+  // Beat 0 of each bar: bass root pulse
+  if (_beat % 8 === 0) {
+    playNote(A_MINOR_PENT[0], 0.45, 'sawtooth', 0.10 + tier * 0.05);
+  }
+  // Beat 4: fifth
+  if (_beat % 8 === 4) {
+    playNote(A_MINOR_PENT[4], 0.35, 'sawtooth', 0.08 + tier * 0.05);
+  }
+  // Combat tier+ : melody on every odd beat
+  if (tier >= 1 && _beat % 2 === 1) {
+    const pick = A_MINOR_PENT[3 + ((_beat * 7) % 5)];
+    playNote(pick, 0.20, 'triangle', 0.05 + tier * 0.04);
+  }
+  // Boss tier: low rumble on every beat
+  if (tier >= 2) {
+    playNote(55, 0.30, 'sawtooth', 0.10);
+    if (_beat % 4 === 2) playNote(A_MINOR_PENT[1] * 2, 0.18, 'square', 0.07);
+  }
+  _beat++;
+}
+
+export function startMusic() {
+  if (_musicPlaying) return;
+  ensureCtx();
+  _musicPlaying = true;
+  _beat = 0;
+  const bpm = 110;
+  const stepMs = (60 / bpm) * 1000 / 2;  // 8th notes
+  _musicTimer = setInterval(_musicStep, stepMs);
+}
+
+export function stopMusic() {
+  _musicPlaying = false;
+  if (_musicTimer) { clearInterval(_musicTimer); _musicTimer = null; }
+}
+
+/** tier: 0=calm, 1=combat, 2=boss */
+export function setMusicTier(tier) {
+  _musicTier = Math.max(0, Math.min(2, tier | 0));
+}

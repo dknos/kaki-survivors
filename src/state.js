@@ -7,6 +7,9 @@ import * as THREE from 'three';
 import { HERO, XP } from './config.js';
 
 export const state = {
+  // ── Top-level mode: 'menu' (start screen), 'town' (hub), 'run' (active game). ──
+  mode: 'menu',
+
   // ── THREE.js core (set by main.js bootstrap) ──
   scene:    /** @type {THREE.Scene|null}  */ (null),
   camera:   /** @type {THREE.OrthographicCamera|null} */ (null),
@@ -37,7 +40,39 @@ export const state = {
     xpNext: XP.base,
     iFramesUntil: 0,   // game-time at which i-frames expire
     /** stat multipliers applied by passives; default 1.0 */
-    statMul: { dmg: 1, projSpeed: 1, area: 1, cooldown: 1, magnet: 1, hpMax: 1, moveSpeed: 1, duration: 1 },
+    statMul: { dmg: 1, projSpeed: 1, area: 1, cooldown: 1, magnet: 1, hpMax: 1, moveSpeed: 1, duration: 1, dmgTaken: 1 },
+    regenPerSec: 0,
+    // Dash (charge / pushback)
+    dashUnlocked: false,
+    dashLevel: 0,           // 0 = locked. Each filler pick increments.
+    dashCD: 0,              // seconds until next dash usable
+    dashUntil: 0,           // real-time when current dash ends (0 if not dashing)
+    dashDir: { x: 0, z: 1 },
+    // Vertical motion (jump)
+    velY: 0,
+    grounded: true,
+    // Filler-pick history (for evolution eligibility)
+    fillerCounts: { heal:0, maxhp:0, speed:0, magnet:0, cooldown:0, damage:0, dash:0, zoomout:0 },
+    // Level-up QoL currencies
+    rerolls: 1,
+    skips: 1,
+  },
+
+  // ── Totems (combat-state destructibles, see src/totems.js) ──
+  totems: {
+    list: [],          // active totem instances (also pushed into enemies.active)
+    respawnQueue: [],  // {at: gameTime, slot: index} scheduled respawns
+    initialized: false,
+    target: 3,         // how many totems live at once
+  },
+
+  // ── Shock Pylons (area-denial destructibles, see src/pylons.js) ──
+  pylons: {
+    list: [],
+    respawnQueue: [],
+    initialized: false,
+    target: 2,
+    armedAt: 120,      // game-time (sec) at which pylons first spawn
   },
 
   // ── Enemies ──
@@ -54,6 +89,18 @@ export const state = {
   projectiles: {
     /** @type {Array<Projectile>} */
     active: [],
+  },
+
+  // ── Enemy projectiles (wizards, etc.) ──
+  enemyProjectiles: {
+    /** @type {Array<{mesh, vx, vz, ttl, dmg, hitR2}>} */
+    active: [],
+  },
+
+  // ── Web slow patches (Sticky Web weapon) ──
+  webs: {
+    /** @type {Array<{x:number,z:number,radius:number,ttl:number,slowMul:number}>} */
+    list: [],
   },
 
   // ── Gems / XP drops ──
@@ -77,12 +124,22 @@ export const state = {
     dmgTaken: 0,
     pickedGems: 0,
     startedAt: 0,
+    // Rolling DPS window: array of [gameTime, damageThisFrame] for last ~5s
+    _dpsWin: [],
+    /** Per-source damage tally, keyed by weapon/source id. */
+    dmgByWeapon: /** @type {Record<string, number>} */ ({}),
+    // Secret-unlock tracking
+    noDmgKills: 0,       // kills since last hit (reset on damage)
+    flawless: true,      // false once hero takes any damage this run
+    speedrunChecked: false, // one-shot flag for speedrun_lv10
   },
 
   // ── FX ──
   fx: {
     chromaticPulse: 0,   // 0..1, decays each frame
     bloomBoost: 0,       // 0..1, decays each frame
+    hitStop: 0,          // seconds of remaining time-freeze (drained each frame)
+    shake: 0,            // 0..1 screen-shake magnitude, decays each frame
   },
 
   // ── Input ──
@@ -96,6 +153,8 @@ export const state = {
   /** @type {Array<{kind:'weapon'|'passive', id:string, level:number}>} */
   levelUpChoices: [],
   gameOver: false,
+  victory: false,
+  dyingUntil: 0,         // real-time at which death animation ends + death screen shows
   started: false,        // false until "press start" cleared
 };
 
@@ -141,13 +200,54 @@ export function resetState() {
   for (const k of Object.keys(state.hero.statMul)) state.hero.statMul[k] = 1;
   state.enemies.active.length = 0;
   state.projectiles.active.length = 0;
+  state.enemyProjectiles.active.length = 0;
   state.gems.list.length = 0; state.gems.nextSlot = 0;
+  state.webs.list.length = 0;
+  state.hero.dashUnlocked = false;
+  state.hero.dashLevel = 0;
+  state.hero.dashCD = 0;
+  state.hero.dashUntil = 0;
+  state.hero.dashDir.x = 0; state.hero.dashDir.z = 1;
+  for (const k of Object.keys(state.hero.fillerCounts)) state.hero.fillerCounts[k] = 0;
+  state.hero.rerolls = 1;
+  state.hero.skips = 1;
+  state.hero.velY = 0;
+  state.hero.grounded = true;
   state.weapons.length = 0;
   state.passives.length = 0;
+  state.hero.regenPerSec = 0;
   state.run.kills = 0; state.run.dmgDealt = 0; state.run.dmgTaken = 0; state.run.pickedGems = 0;
+  state.run.miniBossKills = 0;
+  state.run._dpsWin.length = 0;
+  state.run.dmgByWeapon = {};
+  state.run.noDmgKills = 0;
+  state.run.flawless = true;
+  state.run.speedrunChecked = false;
+  state.run.relicDrop = null;
+  state.run.equippedRelic = null;
+  state.run.heartPotency = 1;
+  state.run.cellarLv = 0;
+  // Totem-of-Swarm bookkeeping — see src/totems.js
+  if (state.totems) {
+    for (const t of state.totems.list) { if (t.mesh && t.mesh.parent) t.mesh.parent.remove(t.mesh); }
+    state.totems.list.length = 0;
+    state.totems.respawnQueue.length = 0;
+    state.totems.initialized = false;
+  }
+  // Shock-Pylon bookkeeping — see src/pylons.js
+  if (state.pylons) {
+    for (const p of state.pylons.list) { if (p.mesh && p.mesh.parent) p.mesh.parent.remove(p.mesh); }
+    state.pylons.list.length = 0;
+    state.pylons.respawnQueue.length = 0;
+    state.pylons.initialized = false;
+  }
+  // Mode flags snapshot — main.js reads getMeta() and pushes here at run start
+  state.modes = state.modes || {};
+  state.modes.hyper = false;
+  state.modes.endless = false;
   state.run.startedAt = performance.now();
-  state.fx.chromaticPulse = 0; state.fx.bloomBoost = 0;
-  state.pendingLevelUp = false; state.levelUpChoices.length = 0; state.gameOver = false;
+  state.fx.chromaticPulse = 0; state.fx.bloomBoost = 0; state.fx.hitStop = 0; state.fx.shake = 0;
+  state.pendingLevelUp = false; state.levelUpChoices.length = 0; state.gameOver = false; state.victory = false; state.dyingUntil = 0;
 }
 
 /** Compute XP required for next level after `lvl`. */

@@ -2,7 +2,67 @@
  * Input: keyboard (WASD + arrow keys) and touch joystick (left half of screen).
  * Writes into state.input.moveVec each frame via sampleInput().
  */
+import * as THREE from 'three';
 import { state } from './state.js';
+
+// Zoom is a discrete ladder gated by the "Bigger Picture" powerup.
+// Notch 0 = most zoomed in (start of every run). Each unlock opens one more
+// notch outward. Wheel/pinch only moves within unlocked range.
+const ZOOM_NOTCHES = [3.0, 2.2, 1.6, 1.2, 0.9, 0.65];
+let _zoomNotch = 0;
+let _maxUnlocked = 0;    // index of farthest-out notch the player has earned
+let _pinchStartDist = 0;
+let _pinchStartNotch = 0;
+
+// ── Manual aim: cursor → world XZ via ortho-camera ray (cheap, no Raycaster) ──
+const _mouse = { clientX: 0, clientY: 0, hasMoved: false };
+const _p1 = new THREE.Vector3();
+const _p2 = new THREE.Vector3();
+export function getMouseClient() { return _mouse; }
+
+/**
+ * Project the current mouse position onto the y=0 plane in world coords.
+ * Returns {x, z}. Falls back to hero forward 10u if camera not yet ready or
+ * the cursor never moved this session.
+ */
+export function getAimWorldPos() {
+  const cam = state.camera;
+  const heroPos = state.hero.pos;
+  if (!cam || !_mouse.hasMoved) {
+    const f = state.hero.facing;
+    return { x: heroPos.x + (f.x || 0) * 10, z: heroPos.z + (f.z || 1) * 10 };
+  }
+  const ndcX =  (_mouse.clientX / window.innerWidth)  * 2 - 1;
+  const ndcY = -(_mouse.clientY / window.innerHeight) * 2 + 1;
+  _p1.set(ndcX, ndcY, -1).unproject(cam);
+  _p2.set(ndcX, ndcY,  1).unproject(cam);
+  const dx = _p2.x - _p1.x, dy = _p2.y - _p1.y, dz = _p2.z - _p1.z;
+  if (Math.abs(dy) < 1e-6) return { x: heroPos.x, z: heroPos.z };
+  const t = -_p1.y / dy;
+  return { x: _p1.x + dx * t, z: _p1.z + dz * t };
+}
+
+export function isDashPressed() {
+  // Repeating presses while held are fine — hero.js gates on its own cooldown.
+  return !!(_keys['ShiftLeft'] || _keys['ShiftRight']);
+}
+
+// Edge-triggered: returns true exactly once per keydown of Space (jump).
+let _jumpQueued = false;
+export function consumeJump() {
+  if (_jumpQueued) { _jumpQueued = false; return true; }
+  return false;
+}
+export function _internalQueueJump() { _jumpQueued = true; }
+
+export function getZoom() { return ZOOM_NOTCHES[_zoomNotch]; }
+export function getZoomNotch() { return _zoomNotch; }
+export function getMaxZoomNotch() { return _maxUnlocked; }
+export function getZoomNotchCount() { return ZOOM_NOTCHES.length; }
+export function unlockZoomLevel() {
+  if (_maxUnlocked < ZOOM_NOTCHES.length - 1) _maxUnlocked++;
+}
+export function resetZoom() { _zoomNotch = 0; _maxUnlocked = 0; }
 
 const _keys = Object.create(null);
 const _touch = {
@@ -24,6 +84,8 @@ export function initInput() {
   // ── Keyboard ──
   window.addEventListener('keydown', (e) => {
     _keys[e.code] = true;
+    // Edge-trigger jump on Space — main.js gates by state.started before consuming
+    if (e.code === 'Space' && !e.repeat) _jumpQueued = true;
   });
   window.addEventListener('keyup', (e) => {
     _keys[e.code] = false;
@@ -31,6 +93,13 @@ export function initInput() {
   window.addEventListener('blur', () => {
     for (const k in _keys) _keys[k] = false;
   });
+
+  // ── Mouse position (for manual aim mode) ──
+  window.addEventListener('mousemove', (e) => {
+    _mouse.clientX = e.clientX;
+    _mouse.clientY = e.clientY;
+    _mouse.hasMoved = true;
+  }, { passive: true });
 
   // ── Touch joystick (left half of screen) ──
   const onTouchStart = (e) => {
@@ -73,6 +142,51 @@ export function initInput() {
   window.addEventListener('touchmove', onTouchMove, { passive: false });
   window.addEventListener('touchend', onTouchEnd, { passive: false });
   window.addEventListener('touchcancel', onTouchEnd, { passive: false });
+
+  // ── Mouse wheel zoom (steps one notch per click, clamped to unlocks) ──
+  let _wheelCD = 0;
+  window.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    const now = performance.now();
+    if (now < _wheelCD) return;        // throttle: one notch per ~120ms
+    _wheelCD = now + 120;
+    if (e.deltaY > 0) {
+      // scroll down = zoom OUT (advance notch up to unlocked cap)
+      _zoomNotch = Math.min(_maxUnlocked, _zoomNotch + 1);
+    } else {
+      // scroll up = zoom IN (back toward notch 0)
+      _zoomNotch = Math.max(0, _zoomNotch - 1);
+    }
+  }, { passive: false });
+
+  // ── Pinch zoom (two-finger touch) — maps ratio to notch index ──
+  window.addEventListener('touchstart', (e) => {
+    if (e.touches.length === 2) {
+      const a = e.touches[0], b = e.touches[1];
+      _pinchStartDist = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+      _pinchStartNotch = _zoomNotch;
+    }
+  }, { passive: false });
+  window.addEventListener('touchmove', (e) => {
+    if (e.touches.length === 2 && _pinchStartDist > 0) {
+      const a = e.touches[0], b = e.touches[1];
+      const dist = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+      const ratio = dist / _pinchStartDist;
+      // pinch open (ratio > 1) = zoom in toward 0; pinch close = zoom out toward _maxUnlocked
+      // map a 50% range to one notch step
+      let delta = 0;
+      if (ratio > 1.3) delta = -1;
+      else if (ratio < 0.77) delta = 1;
+      else if (ratio > 1.7) delta = -2;
+      else if (ratio < 0.6) delta = 2;
+      const target = _pinchStartNotch + delta;
+      _zoomNotch = Math.max(0, Math.min(_maxUnlocked, target));
+      e.preventDefault();
+    }
+  }, { passive: false });
+  window.addEventListener('touchend', (e) => {
+    if (e.touches.length < 2) _pinchStartDist = 0;
+  });
 }
 
 export function sampleInput() {

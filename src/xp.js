@@ -7,8 +7,10 @@ import * as THREE from 'three';
 import { state, xpForLevel } from './state.js';
 import { XP, HERO } from './config.js';
 import { sfx } from './audio.js';
-import { weaponChoices, acquireWeapon } from './weapons/index.js';
-import { showLevelUpModal, hideLevelUpModal } from './ui.js';
+import { weaponChoices, acquireWeapon, applyFiller, applyEvolution } from './weapons/index.js';
+import { shopLevel } from './meta.js';
+import { showLevelUpModal, hideLevelUpModal, flashLevelUp } from './ui.js';
+import { spawnMagnetSpark } from './fx.js';
 
 const GEM_CAPACITY = 500;
 const PICKUP_DIST = 0.5;
@@ -31,31 +33,47 @@ function _hideInstance(i) {
   _matrixDirty = true;
 }
 
-/** Write a visible (scale-1) matrix at slot i for given world pos. */
-function _placeInstance(i, pos) {
-  _mat.compose(pos, _quat.identity(), _scaleOne);
+/** Write a visible matrix at slot i for given world pos + value-based scale. */
+function _placeInstance(i, pos, value = 1) {
+  const tier = _gemTier(value);
+  const s = tier.scale;
+  _mat.compose(pos, _quat.identity(), new THREE.Vector3(s, s, s));
   state.gems.instMesh.setMatrixAt(i, _mat);
   _matrixDirty = true;
 }
 
+// Per-value color + scale tier. value 1 = normal cyan, 5 = magenta elite, 25 = gold boss.
+const _gemColor = new THREE.Color();
+function _gemTier(value) {
+  if (value >= 20) return { color: 0xffe14a, scale: 2.4 };  // boss/jackpot
+  if (value >= 5)  return { color: 0xff66ee, scale: 1.5 };  // elite magenta
+  return { color: 0x44ffcc, scale: 1.0 };                    // normal cyan
+}
+
 export function initXP(scene) {
+  // Slightly chunkier octahedron + emissive feel via additive blend
   const geo = new THREE.OctahedronGeometry(XP.gemSize);
   const mat = new THREE.MeshBasicMaterial({
-    color: 0x44ffcc,
+    color: 0xffffff,         // white base — per-instance color tints it
     transparent: true,
-    opacity: 0.95,
+    opacity: 1.0,
   });
   const inst = new THREE.InstancedMesh(geo, mat, GEM_CAPACITY);
   inst.count = GEM_CAPACITY;
   inst.frustumCulled = false;
   inst.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  // Per-instance color allocation
+  inst.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(GEM_CAPACITY * 3), 3);
+  inst.instanceColor.setUsage(THREE.DynamicDrawUsage);
 
   // Hide all instances initially.
   _mat.compose(_pos.set(0, -1000, 0), _quat.identity(), _scaleZero);
   for (let i = 0; i < GEM_CAPACITY; i++) {
     inst.setMatrixAt(i, _mat);
+    inst.setColorAt(i, _gemColor.setHex(0x44ffcc));
   }
   inst.instanceMatrix.needsUpdate = true;
+  inst.instanceColor.needsUpdate = true;
 
   state.gems.instMesh = inst;
   state.gems.list.length = 0;
@@ -98,7 +116,11 @@ export function dropGem(pos, value = 1) {
     g._vz = 0;
   }
 
-  _placeInstance(slot, list[slot].pos);
+  const inst = state.gems.instMesh;
+  const tier = _gemTier(list[slot].value);
+  inst.setColorAt(slot, _gemColor.setHex(tier.color));
+  if (inst.instanceColor) inst.instanceColor.needsUpdate = true;
+  _placeInstance(slot, list[slot].pos, list[slot].value);
 }
 
 function _triggerLevelUp() {
@@ -107,6 +129,7 @@ function _triggerLevelUp() {
   state.pendingLevelUp = true;
   showLevelUpModal(choices);
   sfx.levelUp && sfx.levelUp();
+  try { flashLevelUp(); } catch (_) {}
 }
 
 export function updateGems(dt) {
@@ -133,6 +156,7 @@ export function updateGems(dt) {
 
     if (!g.magnetized && d2 <= pickupR2) {
       g.magnetized = true;
+      spawnMagnetSpark(g.pos.x, 0.3, g.pos.z);
     }
 
     let moved = false;
@@ -156,7 +180,7 @@ export function updateGems(dt) {
       const ddx = hx - g.pos.x;
       const ddz = hz - g.pos.z;
       if (ddx * ddx + ddz * ddz <= PICKUP_DIST_SQ) {
-        hero.xp += g.value;
+        hero.xp += g.value * (1 + 0.08 * shopLevel('growth'));
         state.run.pickedGems++;
         g.active = false;
         g.magnetized = false;
@@ -168,7 +192,7 @@ export function updateGems(dt) {
     }
 
     if (moved) {
-      _placeInstance(i, g.pos);
+      _placeInstance(i, g.pos, g.value);
     }
   }
 
@@ -178,6 +202,11 @@ export function updateGems(dt) {
     hero.xp -= hero.xpNext;
     hero.level++;
     hero.xpNext = xpForLevel(hero.level);
+    // Secret: Faster Than Light — reach level 10 in under 2 minutes
+    if (!state.run.speedrunChecked && hero.level >= 10 && state.time.game < 120) {
+      state.run.speedrunChecked = true;
+      import('./ui.js').then(({ trySecret }) => trySecret('speedrun_lv10'));
+    }
     _triggerLevelUp();
   }
 
@@ -190,8 +219,13 @@ export function updateGems(dt) {
 export function applyLevelUpChoice(choice) {
   if (choice && choice.kind === 'weapon') {
     acquireWeapon(choice.id);
+  } else if (choice && choice.kind === 'filler') {
+    applyFiller(choice);
+  } else if (choice && choice.kind === 'evolution') {
+    applyEvolution(choice.id);
+  } else if (choice && choice.kind === 'passive') {
+    import('./weapons/passives.js').then(({ applyPassive }) => applyPassive(choice));
   }
-  // (passives not implemented yet)
 
   state.pendingLevelUp = false;
   state.levelUpChoices.length = 0;

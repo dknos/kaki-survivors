@@ -8,13 +8,20 @@
 import * as THREE from 'three';
 import { state } from '../state.js';
 import { damageEnemy, queryRadius } from '../enemies.js';
+import { unlockZoomLevel, getMaxZoomNotch, getZoomNotchCount } from '../input.js';
 
 import orbitals from './orbitals.js';
 import autoAim from './autoAim.js';
+import chain, { tickChainArcs } from './chain.js';
+import web, { tickWebs } from './web.js';
+import { passiveChoices, applyPassive, PASSIVES } from './passives.js';
+export { applyPassive, PASSIVES };
 
 export const REGISTRY = {
   [orbitals.id]: orbitals,
   [autoAim.id]:  autoAim,
+  [chain.id]:    chain,
+  [web.id]:      web,
 };
 
 const WORLD_BOUND = 200; // projectile cull bound (square half-extent around hero)
@@ -37,6 +44,7 @@ export function acquireWeapon(id) {
     existing.level += 1;
     const level = mod.levels[existing.level - 1];
     if (mod.refresh) mod.refresh(state, level, existing.inst);
+    _announceEligibleEvolutions();   // hitting maxLevel may unlock the evo
     return;
   }
   const entry = { id, level: 1, inst: {} };
@@ -55,6 +63,10 @@ export function tickWeapons(dt) {
   }
   // 2) Update all live projectiles (spawned by weapons above)
   tickProjectiles(dt);
+  // 3) Fade chain-lightning arcs
+  tickChainArcs(dt);
+  // 4) Update sticky webs (decay + visual)
+  tickWebs(dt);
 }
 
 function tickProjectiles(dt) {
@@ -87,7 +99,7 @@ function tickProjectiles(dt) {
     for (const enemy of candidates) {
       if (!enemy || !enemy.alive) continue;
       if (p.hit.has(enemy)) continue;
-      damageEnemy(enemy, p.dmg);
+      damageEnemy(enemy, p.dmg, p.ownerWeapon || 'autoaim');
       p.hit.add(enemy);
       p.pierce -= 1;
       if (p.pierce <= 0) {
@@ -110,10 +122,33 @@ function disposeProjectile(p, scene) {
  * Each choice: { kind:'weapon', id, level: nextLevel }.
  * Passives are handled elsewhere (xp.js).
  */
+// Endgame fillers shown when all weapons are maxed — prevents empty level-up modals.
+const FILLERS = [
+  { kind: 'filler', id: 'heal',     name: 'Field Rations', desc: 'Restore 40 HP', icon: '🍞' },
+  { kind: 'filler', id: 'maxhp',    name: 'Iron Resolve',  desc: '+25 Max HP',    icon: '❤️' },
+  { kind: 'filler', id: 'speed',    name: 'Swift Boots',   desc: '+10% Move Speed', icon: '👟' },
+  { kind: 'filler', id: 'magnet',   name: 'Magnet',        desc: '+25% Pickup Radius', icon: '🧲' },
+  { kind: 'filler', id: 'cooldown', name: 'Focus',         desc: '-8% Cooldown',  icon: '⏱️' },
+  { kind: 'filler', id: 'damage',   name: 'Sharpened',     desc: '+10% Damage',   icon: '⚔️' },
+  { kind: 'filler', id: 'zoomout',  name: 'Bigger Picture',desc: 'Unlock one more zoom-out step', icon: '🔍' },
+  { kind: 'filler', id: 'dash',     name: 'Charge Dash',   desc: 'SHIFT to dash + knock back enemies (each pick = stronger)', icon: '💨' },
+];
+
 export function weaponChoices(n) {
   const ids = Object.keys(REGISTRY);
   const owned = new Map(state.weapons.map(w => [w.id, w]));
   const pool = [];
+
+  // 1) Evolutions: highest priority. Show as 'evolution' kind.
+  for (const baseId of Object.keys(EVOLUTIONS)) {
+    if (_isEvolutionEligible(baseId)) {
+      const evo = EVOLUTIONS[baseId];
+      pool.push({
+        kind: 'evolution', id: baseId, level: 'EVO',
+        name: evo.name, icon: evo.icon, desc: evo.desc,
+      });
+    }
+  }
 
   for (const id of ids) {
     const mod = REGISTRY[id];
@@ -123,16 +158,137 @@ export function weaponChoices(n) {
         pool.push({ kind: 'weapon', id, level: have.level + 1 });
       }
     } else {
-      // Respect maxSlots: if all slots are full, only level-ups are offered
-      // (handled by the caller too, but be defensive).
       pool.push({ kind: 'weapon', id, level: 1 });
     }
   }
 
-  // Shuffle (Fisher–Yates) and take first N
+  // Mix in named passives. Up to 2 of the 3 cards can be passives if the
+  // player has open slots / leveling room.
+  try {
+    const passives = passiveChoices(2);
+    for (const p of passives) pool.push(p);
+  } catch (_) {}
+
+  // Shuffle the full pool (weapons + passives + evolutions).
   for (let i = pool.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
     const tmp = pool[i]; pool[i] = pool[j]; pool[j] = tmp;
   }
+
+  // Always pad with fillers so the modal never has fewer than n cards.
+  if (pool.length < n) {
+    const zoomMaxed = getMaxZoomNotch() >= getZoomNotchCount() - 1;
+    const dashMaxed = state.hero.dashLevel >= 5;   // matches DASH.levels[1..5]
+    const available = FILLERS.filter(f =>
+      !(f.id === 'zoomout' && zoomMaxed) &&
+      !(f.id === 'dash' && dashMaxed)
+    );
+    const shuffled = [...available].sort(() => Math.random() - 0.5);
+    for (const f of shuffled) {
+      if (pool.length >= n) break;
+      pool.push({ kind: 'filler', id: f.id, level: 1, name: f.name, desc: f.desc, icon: f.icon });
+    }
+  }
   return pool.slice(0, n);
+}
+
+// Tracks which evolutions have been announced this run so we don't repeat the banner.
+const _announcedEvos = new Set();
+export function _resetEvoAnnouncements() { _announcedEvos.clear(); }
+
+/** Apply a non-weapon filler choice. Called by xp.js applyLevelUpChoice. */
+export function applyFiller(choice) {
+  const h = state.hero;
+  switch (choice.id) {
+    case 'heal':     h.hp = Math.min(h.hp + 40, h.hpMax); break;
+    case 'maxhp':    h.hpMax += 25; h.hp += 25; break;
+    case 'speed':    h.statMul.moveSpeed *= 1.10; break;
+    case 'magnet':   h.statMul.magnet    *= 1.25; break;
+    case 'cooldown': h.statMul.cooldown  *= 0.92; break;
+    case 'damage':   h.statMul.dmg       *= 1.10; break;
+    case 'zoomout':  unlockZoomLevel(); break;
+    case 'dash':
+      h.dashUnlocked = true;
+      h.dashLevel = Math.min((h.dashLevel || 0) + 1, 5);
+      break;
+  }
+  // Track the pick for evolution eligibility
+  if (h.fillerCounts && choice.id in h.fillerCounts) {
+    h.fillerCounts[choice.id] = (h.fillerCounts[choice.id] || 0) + 1;
+  }
+  // Announce any evolution that just became eligible
+  _announceEligibleEvolutions();
+}
+
+function _announceEligibleEvolutions() {
+  for (const baseId of Object.keys(EVOLUTIONS)) {
+    if (_announcedEvos.has(baseId)) continue;
+    if (_isEvolutionEligible(baseId)) {
+      _announcedEvos.add(baseId);
+      const evo = EVOLUTIONS[baseId];
+      // Persist this evolution as discovered in the meta Grimoire
+      import('../meta.js').then(({ discoverEvolution }) => discoverEvolution(evo.id));
+      import('../ui.js').then(({ showBanner }) => {
+        showBanner(`★ EVOLUTION READY: ${evo.name.toUpperCase()}`, 3.5, '#ffe14a');
+      });
+      state.fx.bloomBoost = 1.0;
+    }
+  }
+}
+
+// ── Evolutions ───────────────────────────────────────────────────────────────
+// When a weapon is maxed AND the corresponding filler has been picked enough,
+// an EVOLUTION choice appears. Picking it stamps `inst.evolved = true` and
+// the weapon's tick reads that flag to apply a permanent boost.
+export const EVOLUTIONS = {
+  orbitals: {
+    id: 'toxic_halo',
+    requires: { filler: 'magnet', count: 3 },
+    name: 'Toxic Halo',
+    icon: '☠️',
+    desc: 'Orbitals deal 2.5× damage and apply 1s poison DoT to anything they touch',
+  },
+  chain: {
+    id: 'storm',
+    requires: { filler: 'cooldown', count: 3 },
+    name: 'Storm',
+    icon: '🌩️',
+    desc: 'Chain fires every 0.3s with +3 chains and 2× damage',
+  },
+  autoaim: {
+    id: 'volley',
+    requires: { filler: 'damage', count: 3 },
+    name: 'Volley',
+    icon: '🎯',
+    desc: 'Magic Missile fires +2 projectiles per volley with 1.5× speed and +2 pierce',
+  },
+  web: {
+    id: 'tangle',
+    requires: { filler: 'speed', count: 3 },
+    name: 'Tangle',
+    icon: '🕷️',
+    desc: 'Sticky Web has 1.5× radius, sharper slow, and longer duration',
+  },
+};
+
+function _isEvolutionEligible(weaponId) {
+  const evo = EVOLUTIONS[weaponId];
+  if (!evo) return false;
+  const owned = state.weapons.find(w => w.id === weaponId);
+  if (!owned) return false;
+  const mod = REGISTRY[weaponId];
+  if (owned.level < mod.maxLevel) return false;
+  if (owned.inst && owned.inst.evolved) return false; // already done
+  const have = (state.hero.fillerCounts && state.hero.fillerCounts[evo.requires.filler]) || 0;
+  return have >= evo.requires.count;
+}
+
+export function applyEvolution(weaponId) {
+  const owned = state.weapons.find(w => w.id === weaponId);
+  if (!owned) return;
+  if (!owned.inst) owned.inst = {};
+  owned.inst.evolved = true;
+  state.fx.bloomBoost = 1.0;
+  state.fx.shake = Math.max(state.fx.shake || 0, 0.5);
+  import('../ui.js').then(({ tryAchievement }) => tryAchievement('first_evolution'));
 }
