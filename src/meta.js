@@ -240,6 +240,10 @@ export const HOUSE_UPGRADES = [
   { id: 'shrine',     name: 'Shrine',     desc: '+1 starting reroll per level',      icon: '⛩️', max: 3, costs: [1, 4, 10] },
   { id: 'apothecary', name: 'Apothecary', desc: '+0.5 HP/s passive regen per level', icon: '🌡', max: 3, costs: [2, 5, 12] },
   { id: 'vault',      name: 'Vault',      desc: '+25% end-of-run coins per level',   icon: '🏦', max: 3, costs: [1, 3, 8] },
+  // One-time unlock: swap the 90s CRT for a Lain Navi terminal that allows
+  // three concurrent active quests instead of one. Pricier than a stat track
+  // because it's a permanent capability upgrade, not a stack.
+  { id: 'lain',       name: 'Lain Navi',  desc: 'Upgrade CRT → Navi terminal · 3 active quests', icon: '💠', max: 1, costs: [20] },
 ];
 
 export function houseLevel(id) {
@@ -394,6 +398,11 @@ export function buyHouseUpgrade(id) {
   meta.embers -= cost;
   if (!meta.house) meta.house = {};
   meta.house[id] = cur + 1;
+  // Side effects for one-time capability upgrades
+  if (id === 'lain') {
+    if (!meta.quests) meta.quests = { active: [], completedCount: 0, lainTerminal: false };
+    meta.quests.lainTerminal = true;
+  }
   saveMeta();
   return true;
 }

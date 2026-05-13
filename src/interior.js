@@ -13,6 +13,7 @@
  */
 import * as THREE from 'three';
 import { state } from './state.js';
+import { getMeta } from './meta.js';
 
 // Room dimensions (in world units)
 const ROOM_W = 14;   // x
@@ -474,7 +475,19 @@ export function setInteriorHandler(key, fn) { _handlers[key] = fn; }
 
 export function enterInterior() {
   state.mode = 'interior';
-  if (_group) _group.position.y = 0;
+  if (_group) {
+    _group.position.y = 0;
+    // Rebuild the computer mesh in case the player bought (or sold) the Lain
+    // upgrade since the last visit. Cheap — a handful of primitives.
+    const oldComputer = _group.userData._computer;
+    if (oldComputer && oldComputer.parent) oldComputer.parent.remove(oldComputer);
+    const lainOwned = !!(getMeta().quests && getMeta().quests.lainTerminal);
+    const computer = _makeComputerDesk(lainOwned);
+    computer.position.set(-5.5, 0, 2.2);
+    computer.rotation.y = -Math.PI / 5;
+    _group.add(computer);
+    _group.userData._computer = computer;
+  }
   // Spawn at the door (south end of the room)
   state.hero.pos.set(0, 0, ROOM_D / 2 - 2);
   state.hero.vel.set(0, 0, 0);
