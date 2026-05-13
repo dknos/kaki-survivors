@@ -7,7 +7,8 @@ import * as THREE from 'three';
 import { HERO, XP } from './config.js';
 
 export const state = {
-  // ── Top-level mode: 'menu' (start screen), 'town' (hub), 'run' (active game). ──
+  // ── Top-level mode: 'menu' (start screen), 'town' (hub), 'run' (active game),
+  //    'interior' (cabin room), 'catacomb' (dungeon sub-arena). ──
   mode: 'menu',
 
   // ── THREE.js core (set by main.js bootstrap) ──

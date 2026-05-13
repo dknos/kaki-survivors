@@ -9,7 +9,7 @@ import { preloadAll } from './assets.js';
 import { createComposer, resizeComposer, BLOOM_LAYER } from './postfx.js';
 import { buildEnv } from './env.js';
 import { unlockAudio, startMusic, stopMusic, setMusicTier, setVolume, sfx } from './audio.js';
-import { getMeta, shopLevel, selectedCharacter, dailyChallengeConfig, commitDailyRun, equippedRelic, selectedStage } from './meta.js';
+import { getMeta, shopLevel, selectedCharacter, dailyChallengeConfig, commitDailyRun, equippedRelic, selectedStage, QUEST_TEMPLATES } from './meta.js';
 import { CHARACTERS, STAGES } from './config.js';
 
 // Module imports (filled in by parallel agents)
@@ -33,6 +33,7 @@ import { initBlobShadows, updateBlobShadows } from './blobShadows.js';
 import { updateEnemyProjectiles } from './enemyProjectiles.js';
 import { buildTown, enterTown, exitTown, tickTown, setGateHandler, setInteractionHandler } from './town.js';
 import { buildInterior, enterInterior, exitInterior, tickInterior, setInteriorHandler } from './interior.js';
+import { buildCatacomb, tickCatacomb, tickCatacombEntrance, exitCatacomb, resetCatacomb } from './catacomb.js';
 import { showSketchbook } from './sketchbook.js';
 import { showYarnDart } from './yarndart.js';
 import { showTeaSteep } from './teasteep.js';
@@ -135,6 +136,7 @@ async function boot() {
   state.envGroup = buildEnv(scene, renderer);
   buildTown(scene);
   buildInterior(scene);
+  buildCatacomb(scene);
 
   initInput();
   initUI();
@@ -219,6 +221,7 @@ async function boot() {
       if (isQuestBoardOpen()) hideQuestBoard();
       else if (isHouseOpen()) hideHouse();
       else if (state.mode === 'interior') { exitInterior(); enterTown(); }
+      else if (state.mode === 'catacomb') { exitCatacomb(); }
       else if (isShopOpen()) hideShop();
       else if (isGrimoireOpen()) hideGrimoire();
       else if (isOptionsOpen()) hideOptions();
@@ -290,6 +293,7 @@ function _teardownActiveRun() {
   resetTotems();
   resetPylons();
   resetBells();
+  resetCatacomb();
   resetBossTelegraphs();
   resetDestructibles();
   initSpawnDirector();
@@ -298,6 +302,13 @@ function _teardownActiveRun() {
 }
 
 function _primeRunStart() {
+  // Snapshot active quest progress so the town arrival toast can show
+  // exactly how much each bounty advanced during the run that just ended.
+  try {
+    const meta = getMeta();
+    const active = (meta.quests && meta.quests.active) || [];
+    window._kkQuestSnapshot = active.map(q => ({ id: q.id, progress: q.progress || 0 }));
+  } catch (_) { window._kkQuestSnapshot = []; }
   // Rebuild hero mesh so a newly-picked character's placeholder tint applies.
   rebuildHero(state.scene);
   applyMetaUpgrades();
@@ -313,6 +324,12 @@ function _primeRunStart() {
       }
     });
   }
+}
+
+// Tiny HTML escape so quest names don't break the toast if a future template
+// happens to include a special character.
+function escapeHtmlS(s) {
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
 // Paper-styled arrival toast shown briefly after returning to town from a run.
@@ -336,6 +353,31 @@ function _showTownArrivalToast(s) {
   if (s.unlockedCinder) lines.push(`<div style="margin-top:8px;color:#ff7a3a;font-family:'Cinzel Decorative',serif;font-size:12px;letter-spacing:0.24em;">🜂 Cinder Caverns unlocked</div>`);
   if (s.unlockedHyper)  lines.push(`<div style="margin-top:6px;color:#ff5555;font-family:'Cinzel Decorative',serif;font-size:12px;letter-spacing:0.24em;">🔥 Hyper unlocked</div>`);
   if (s.unlockedEndless)lines.push(`<div style="margin-top:6px;color:#7fffe4;font-family:'Cinzel Decorative',serif;font-size:12px;letter-spacing:0.24em;">♾ Endless unlocked</div>`);
+  // Quest progress deltas — diff against the snapshot taken at run start.
+  try {
+    const snap = window._kkQuestSnapshot || [];
+    const snapMap = new Map(snap.map(q => [q.id, q.progress]));
+    const meta = getMeta();
+    const active = (meta.quests && meta.quests.active) || [];
+    const rows = [];
+    for (const q of active) {
+      const before = snapMap.get(q.id) || 0;
+      const delta = (q.progress || 0) - before;
+      if (delta <= 0) continue;
+      const tpl = QUEST_TEMPLATES.find(t => t.id === q.id);
+      if (!tpl) continue;
+      const ready = q.progress >= tpl.goal;
+      const color = ready ? '#ffae6a' : '#5a8a3a';
+      rows.push(`<div style="font-family:'JetBrains Mono',monospace;font-size:12px;color:${color};display:flex;justify-content:space-between;gap:14px;">
+        <span style="opacity:0.78;">${tpl.icon} ${escapeHtmlS(tpl.name)}</span>
+        <span>+${delta}  ${q.progress}/${tpl.goal}${ready ? '  ★' : ''}</span>
+      </div>`);
+    }
+    if (rows.length > 0) {
+      lines.push(`<div style="margin-top:10px;padding-top:8px;border-top:1px solid rgba(35,26,20,0.25);font-family:'Inter',sans-serif;font-size:11px;letter-spacing:0.22em;color:#5a4838;text-transform:uppercase;text-align:left;">Quest progress</div>`);
+      lines.push(`<div style="margin-top:4px;display:flex;flex-direction:column;gap:2px;text-align:left;">${rows.join('')}</div>`);
+    }
+  } catch (_) {}
   div.innerHTML = lines.join('');
   div.style.cssText = `
     position: fixed; top: 8%; left: 50%; transform: translateX(-50%);
@@ -533,6 +575,78 @@ function frame(now) {
     return;
   }
 
+  // Catacomb mode — full combat tick inside the dungeon sub-arena.
+  // Same logic as the run branch, but:
+  //   * no spawn director (catacomb manages its own mini-waves)
+  //   * no totems/pylons/bells/destructibles (overworld objectives)
+  //   * tighter iso camera (same offset shape as interior mode)
+  if (state.mode === 'catacomb') {
+    if (state.pendingLevelUp || state.gameOver || state.time.paused) {
+      if (state.gameOver) {
+        updateDeathAnim(realDt);
+        updateDamageNumbers(realDt);
+        applyShake(realDt);
+      }
+      if (state.postFXPass) state.postFXPass.uniforms.time.value = state.time.real;
+      renderFrame();
+      requestAnimationFrame(frame);
+      return;
+    }
+    let logicDt = realDt;
+    if (state.fx.hitStop > 0) {
+      state.fx.hitStop = Math.max(0, state.fx.hitStop - realDt);
+      logicDt = 0;
+    }
+    state.time.dt = logicDt;
+    state.time.game += logicDt;
+
+    sampleInput();
+    updateHero(logicDt);
+    updateEnemies(logicDt);
+    tickWeapons(logicDt);
+    updateGems(logicDt);
+    updateFX(logicDt);
+    updateVFXBurst(logicDt);
+    updatePickupRing();
+    updateEnemyProjectiles(logicDt);
+    tickChests(logicDt);
+    updateBossTelegraphs(logicDt);
+    tickPickups(logicDt);
+    updateBlobShadows();
+    updateDamageNumbers(realDt);
+    tickCatacomb(logicDt);
+
+    state.fx.chromaticPulse *= Math.pow(0.05, realDt);
+    state.fx.bloomBoost     *= Math.pow(0.10, realDt);
+
+    // Tight iso camera (mirrors interior offset shape)
+    const hp = state.hero.pos;
+    camera.position.x += (hp.x + 22 - camera.position.x) * 0.16;
+    camera.position.z += (hp.z + 22 - camera.position.z) * 0.16;
+    camera.position.y = 38;
+    camera.lookAt(hp.x, 0.6, hp.z);
+    const _ca = ASPECT();
+    const _chalf = 14;
+    camera.left = -_chalf * _ca; camera.right = _chalf * _ca;
+    camera.top  =  _chalf;       camera.bottom = -_chalf;
+    camera.updateProjectionMatrix();
+
+    applyShake(realDt);
+    if (state.postFXPass) {
+      state.postFXPass.uniforms.time.value = state.time.real;
+      state.postFXPass.uniforms.chromatic.value = 0.0008 + state.fx.chromaticPulse * 0.004;
+    }
+    if (state.bloomPass) {
+      const vfxMul = (getMeta().optVfx !== undefined ? getMeta().optVfx : 1.0);
+      state.bloomPass.strength = (0.30 + state.fx.bloomBoost * 0.30) * vfxMul;
+    }
+    updateUI();
+    renderFrame();
+    updatePerfHUD();
+    requestAnimationFrame(frame);
+    return;
+  }
+
   // Town hub mode — stripped-down tick: input + hero + fx + camera + render.
   if (state.mode === 'town') {
     sampleInput();
@@ -606,6 +720,7 @@ function frame(now) {
   tickPylons(logicDt);
   tickBells(logicDt);
   tickPickups(logicDt);
+  tickCatacombEntrance(logicDt);
   updateBlobShadows();
   updateDamageNumbers(realDt);
 
