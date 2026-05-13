@@ -90,8 +90,10 @@ function _normalizeBurgerGlb(root) {
 }
 
 // Try the GLB first; fall back to primitives if missing.
-function _makeBurger() {
-  const glb = cloneCached('burger');
+// `evolved` swaps to the Double Cheeseburger model (Toxic Halo evolution).
+function _makeBurger(evolved = false) {
+  const key = evolved ? 'burger_evo' : 'burger';
+  const glb = cloneCached(key) || cloneCached('burger');  // graceful evo fallback
   if (glb) {
     const wrap = new THREE.Group();
     wrap.add(_normalizeBurgerGlb(glb));
@@ -109,7 +111,7 @@ function spawnOrbs(level, inst) {
     // glowy emissives; putting the burger on it makes the bloom pass render
     // each mesh in isolation against black, then additive-composite it back,
     // which produced the ghostly "blue square" look the player flagged.
-    const burger = _makeBurger();
+    const burger = _makeBurger(!!inst.evolved);
     group.add(burger);
     // Flat additive glow on ground
     const glow = new THREE.Mesh(GLOW_GEO, GLOW_MAT);
@@ -171,23 +173,14 @@ export default {
     const dmg = level.dmg * dmgMul * evoMul;
     const radiusFinal = radius * (inst.evolved ? 1.15 : 1);
 
-    // Toxic Halo evo: tint the cheese poison-green + recolor the ground glow
+    // Toxic Halo evo: swap to Double Cheeseburger model + recolor ground glow.
+    // The base burger meshes get disposed/rebuilt instead of tinted in-place
+    // (tinting GLB materials per-mesh was unreliable across the food pack).
     if (inst.evolved && !inst._tinted) {
       inst._tinted = true;
+      disposeOrbs(inst);
+      spawnOrbs(level, inst);
       for (const orb of inst.orbs) {
-        // Walk the burger group; the cheese has the unique CHEESE_MAT color.
-        if (orb.core && orb.core.traverse) {
-          orb.core.traverse(o => {
-            if (!o.isMesh || !o.material) return;
-            // Cheese slice has the warmest emissive — recolor to poison.
-            if (o.geometry === CHEESE_GEO) {
-              o.material = o.material.clone();
-              o.material.color.set(0xb0ff44);
-              o.material.emissive.set(0x4a8a1a);
-              o.material.emissiveIntensity = 0.5;
-            }
-          });
-        }
         if (orb.glow && orb.glow.material) {
           orb.glow.material = orb.glow.material.clone();
           orb.glow.material.color.set(0x99ff33);
