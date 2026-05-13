@@ -13,3 +13,6 @@ node_modules/
 *.log
 .env
 .env.local
+
+# Background-agent worktrees (used by Claude Code Agent isolation)
+.claude/
