@@ -183,7 +183,8 @@ export function updateGems(dt) {
         // Shop growth + Crown passive + Soul Link XP-mul, all multiply on top.
         const xpMul = (1 + 0.08 * shopLevel('growth')) *
                       (1 + (state.run.passive_xpMul || 0)) *
-                      (1 + (state.run.passive_soulLinkXpMul || 0));
+                      (1 + (state.run.passive_soulLinkXpMul || 0)) *
+                      (state.run.stageRuleXpMul || 1);
         hero.xp += g.value * xpMul;
         state.run.pickedGems++;
         g.active = false;

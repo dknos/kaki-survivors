@@ -20,6 +20,7 @@ import { spawnEnemyProjectile } from './enemyProjectiles.js';
 import { spawnChest } from './chest.js';
 import { spawnHeart, spawnStar, spawnBomb, spawnFreeze, spawnChicken } from './pickups.js';
 import { sfx } from './audio.js';
+import { notifyStageEnemySpawn, notifyStageEnemyKill } from './stageRules.js';
 
 // ── Module-scope temp vectors (reuse, never `new` in update loops) ────────────
 const _tmpDir   = new THREE.Vector3();
@@ -358,6 +359,8 @@ export function spawnEnemy(tierConfig, x, z) {
 
   state.enemies.spatial.insert(enemy);
   state.enemies.active.push(enemy);
+  // Stage-rule spawn hook (e.g. per-stage tweaks to fresh enemies).
+  try { notifyStageEnemySpawn(enemy); } catch (_) {}
   return enemy;
 }
 
@@ -520,6 +523,8 @@ export function killEnemy(enemy) {
 
   state.run.kills++;
   state.run.noDmgKills = (state.run.noDmgKills || 0) + 1;
+  // Stage-rule kill hook (e.g. Cinder "Eruption" bonus heart near puddles).
+  try { notifyStageEnemyKill(enemy); } catch (_) {}
 
   // Vampirism passive: heal a small flat amount per kill, capped at level value.
   const vampHpPerKill = state.run.passive_vampHpPerKill || 0;
@@ -723,6 +728,9 @@ export function updateEnemies(dt) {
         if (W.slowMul < slow) slow = W.slowMul;
       }
     }
+    // Stage-rule global slow (Forest "Overgrowth" spore pulse).
+    const ruleSlow = (state.run && state.run.stageRuleEnemySlow) || 1;
+    if (ruleSlow < slow) slow = ruleSlow;
     e.slowMul = slow;
 
     // ── Frost / stun: restore spd when freeze expires (Frostbloom + Sigil Bell) ──
@@ -766,9 +774,11 @@ export function updateEnemies(dt) {
         }
       }
 
-      // Walk (scaled by slow + rangedAI behavior + Cursed Bell enrage)
+      // Walk (scaled by slow + rangedAI behavior + Cursed Bell enrage).
+      // _flee inverts the seek direction (used by Treasure Goblin mini-event).
       const enrage = (e._enrageUntil && state.time.game < e._enrageUntil) ? 1.5 : 1.0;
-      const step = e.spd * slow * enrage * dt * walkScale;
+      const fleeMul = e._flee ? -1 : 1;
+      const step = e.spd * slow * enrage * dt * walkScale * fleeMul;
       ep.x += dx * step;
       ep.z += dz * step;
 

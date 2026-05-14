@@ -62,7 +62,9 @@ function ringPos(angle, radius) {
 }
 
 function spawnOnRing(tier, angle, radiusMul = 1) {
-  const r = (SPAWN.ringRadius + (Math.random() * 2 - 1) * SPAWN.ringJitter) * radiusMul;
+  // Stage rule may tighten/widen the ring (Forest "Overgrowth" = 0.75×).
+  const stageRingMul = (state.run && state.run.stageRuleSpawnRingMul) || 1;
+  const r = (SPAWN.ringRadius + (Math.random() * 2 - 1) * SPAWN.ringJitter) * radiusMul * stageRingMul;
   const { x, z } = ringPos(angle, r);
   spawnEnemy(tier, x, z);
 }
@@ -203,7 +205,9 @@ export function tickSpawnDirector(dt) {
   if (allowedTiers.length === 0) return;
 
   // ── Continuous top-up ──
-  const swarmMul = state.run && state.run.dailySpawnMul ? state.run.dailySpawnMul : 1;
+  const dailyMul = state.run && state.run.dailySpawnMul ? state.run.dailySpawnMul : 1;
+  const ruleMul  = state.run && state.run.stageRuleSpawnMul ? state.run.stageRuleSpawnMul : 1;
+  const swarmMul = dailyMul * ruleMul;
   // Boss rush: tiny ambient swarm (3-4 alive) so the player still has XP and
   // pickups, but the focus is the bosses.
   const target = bossRush

@@ -223,6 +223,16 @@ export const STAGES = [
     fogColor: 0x2a0904,
     unlock: 'unlockedCinder',   // first twilight victory
   },
+  {
+    id: 'void', name: 'Catacomb Void',
+    desc: 'A bone-quiet under-grave. The Reaper exacts a toll for every breath drawn here.',
+    enemyHpMul: 1.85,
+    finalBossAt: 540,           // 9:00 — death pressure forces fast runs
+    // Cold purple-bruise tint with deep-violet fog to read as crypt-light.
+    groundTint: 0x6a4a8a,
+    fogColor: 0x0a0612,
+    unlock: 'unlockedVoid',     // first cinder victory (future hook)
+  },
 ];
 
 export const STAGE = {

@@ -42,6 +42,10 @@ import { initPylons, tickPylons, resetPylons } from './pylons.js';
 import { initBells, tickBells, resetBells } from './bells.js';
 import { initEnemyTells, updateEnemyTells, resetEnemyTells } from './enemyTells.js';
 import { initStageHazards, tickStageHazards, resetStageHazards } from './stageHazards.js';
+import { applyStageRule, tickStageRule, clearStageRule } from './stageRules.js';
+import { loadArenaDecor, clearArenaDecor } from './arenaDecor.js';
+import { initMiniEvents, tickMiniEvents, resetMiniEvents, teardownMiniEvents } from './miniEvents.js';
+import { initArenaProps, spawnArenaProps, tickArenaProps, resetArenaProps } from './arenaProps.js';
 
 // ── Bootstrap ─────────────────────────────────────────────────────────────────
 
@@ -150,6 +154,8 @@ async function boot() {
   initBells(scene);
   initEnemyTells(scene);
   initStageHazards(scene);
+  initMiniEvents(scene);
+  initArenaProps(scene);
   initChests(scene);
   initPickups(scene);
   initBossTelegraphs(scene);
@@ -185,6 +191,9 @@ async function boot() {
     state.started = true;
     if (state.mode === 'town') exitTown();
     state.mode = 'run';
+    // Mid-run flavor: arena props at run start, mini-events scheduler reset.
+    resetMiniEvents();
+    spawnArenaProps();
     // Player may have changed character on the picker — rebuild hero so the
     // placeholder tint reflects the current selection.
     rebuildHero(state.scene);
@@ -288,6 +297,9 @@ function _teardownActiveRun() {
   // Clear webs (visual is hidden by tickWebs since list is empty)
   if (state.webs && state.webs.list) state.webs.list.length = 0;
 
+  // Tear down arena decor (re-built when the next run's stage tint applies).
+  if (state.scene) clearArenaDecor(state.scene);
+
   // Reset core state (clears weapons, fillerCounts, etc.)
   resetState();
   resetZoom();
@@ -299,6 +311,9 @@ function _teardownActiveRun() {
   resetBells();
   resetEnemyTells();
   resetStageHazards();
+  clearStageRule(state);
+  teardownMiniEvents();
+  resetArenaProps();
   resetCatacomb();
   resetBossTelegraphs();
   resetDestructibles();
@@ -330,6 +345,11 @@ function _primeRunStart() {
       }
     });
   }
+  // Activate the chosen stage's gameplay rule (per-stage modifier).
+  try {
+    const sid = state.run && state.run.stage && state.run.stage.id;
+    if (sid) applyStageRule(sid, state);
+  } catch (_) {}
 }
 
 // Tiny HTML escape so quest names don't break the toast if a future template
@@ -412,6 +432,8 @@ function _showTownArrivalToast(s) {
 function restartRun() {
   _teardownActiveRun();
   _primeRunStart();
+  resetMiniEvents();
+  spawnArenaProps();
   state.mode = 'run';
   state._deathShown = false;
   state.started = true;
@@ -536,6 +558,11 @@ function applyMetaUpgrades() {
     if (typeof state.envGroup.userData.applyStageTint === 'function') {
       state.envGroup.userData.applyStageTint(stage);
     }
+  }
+  // Per-stage instanced decor (trees / crystals / lava cracks / bones). Built
+  // on top of the tint so each arena reads visually distinct, not just recolored.
+  if (stage && state.scene) {
+    loadArenaDecor(stage.id, state.scene);
   }
 }
 
@@ -727,6 +754,9 @@ function frame(now) {
   tickBells(logicDt);
   updateEnemyTells(logicDt);
   tickStageHazards(logicDt);
+  tickStageRule(state, logicDt);
+  tickMiniEvents(logicDt);
+  tickArenaProps(logicDt);
   tickPickups(logicDt);
   tickCatacombEntrance(logicDt);
   updateBlobShadows();

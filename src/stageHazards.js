@@ -84,7 +84,11 @@ export function initStageHazards(scene) {
   const fogMat = new THREE.ShaderMaterial({
     transparent: true,
     depthWrite: false,
-    uniforms: { uHero: { value: new THREE.Vector2(0, 0) } },
+    uniforms: {
+      uHero: { value: new THREE.Vector2(0, 0) },
+      uInner: { value: 14.0 },
+      uOuter: { value: 32.0 },
+    },
     vertexShader: `
       varying vec2 vWorld;
       void main() {
@@ -95,10 +99,12 @@ export function initStageHazards(scene) {
     `,
     fragmentShader: `
       uniform vec2 uHero;
+      uniform float uInner;
+      uniform float uOuter;
       varying vec2 vWorld;
       void main() {
         float d = distance(vWorld, uHero);
-        float k = smoothstep(14.0, 32.0, d);   // clear within 14u, dark past 32u
+        float k = smoothstep(uInner, uOuter, d);
         gl_FragColor = vec4(0.02, 0.05, 0.09, k * 0.78);
       }
     `,
@@ -148,6 +154,22 @@ function _spawnLavaNearHero() {
     ttl: 12 + Math.random() * 5,
     life: 12 + Math.random() * 5,
     armingUntil: state.time.game + 1.2,  // yellow rim flash for the first 1.2s
+    radius: 1.5,
+  });
+}
+
+/**
+ * External spawn entry (used by Cinder stage rule "Eruption"). Drops a lava
+ * puddle at an arbitrary world position with the standard arming flash.
+ */
+export function spawnLavaPuddle(x, z) {
+  if (!_lavaInst) return;
+  if (_lavas.length >= LAVA_CAP) _lavas.shift();
+  _lavas.push({
+    x, z,
+    ttl: 8 + Math.random() * 3,
+    life: 8 + Math.random() * 3,
+    armingUntil: state.time.game + 1.2,
     radius: 1.5,
   });
 }
@@ -211,7 +233,15 @@ export function tickStageHazards(dt) {
       _twilightFogPlane.visible = true;
       _twilightFogPlane.position.x = heroX;
       _twilightFogPlane.position.z = heroZ;
-      _twilightFogPlane.material.uniforms.uHero.value.set(heroX, heroZ);
+      const u = _twilightFogPlane.material.uniforms;
+      u.uHero.value.set(heroX, heroZ);
+      // Witching Hour surge tightens vision: inner clear-radius shrinks
+      // from 14u to 6u, dark wall pulls in from 32u to 18u.
+      const surge = !!(state.run && state.run.twilightSurge);
+      const tgtInner = surge ? 6.0  : 14.0;
+      const tgtOuter = surge ? 18.0 : 32.0;
+      u.uInner.value += (tgtInner - u.uInner.value) * Math.min(1, dt * 4);
+      u.uOuter.value += (tgtOuter - u.uOuter.value) * Math.min(1, dt * 4);
     }
   } else {
     if (_twilightFogPlane) _twilightFogPlane.visible = false;

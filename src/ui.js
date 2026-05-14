@@ -13,6 +13,7 @@ import { CHARACTERS, STAGES } from './config.js';
 import { SLOT_SYMBOLS, rollReel, resolveOutcome, applyOutcome } from './slotMachine.js';
 import { pushFocusScope, popFocusScope } from './uiFocus.js';
 import { mountLegend as mountPromptLegend, formatPrompt } from './buttonPrompts.js';
+import { loadArenaDecor } from './arenaDecor.js';
 
 // ── Theme constants ──────────────────────────────────────────────────────────
 const C = {
@@ -1255,6 +1256,12 @@ export function showStartScreen(text) {
             // the player sees the picked stage's atmosphere before pressing Start.
             if (state.envGroup && state.envGroup.userData && state.envGroup.userData.applyStageTint) {
               state.envGroup.userData.applyStageTint(st);
+            }
+            // Swap arena decor in the start-screen preview too, so the
+            // player sees the trees / crystals / cracks for the picked stage
+            // before pressing Start.
+            if (state.scene) {
+              try { loadArenaDecor(st.id, state.scene); } catch (_) {}
             }
             paintStages();
             _refreshStartFocus();
