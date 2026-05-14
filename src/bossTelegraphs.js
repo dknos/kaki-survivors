@@ -135,7 +135,7 @@ export function updateBossTelegraphs(dt) {
       ring.scale.set(0.6, 1, 0.6);
       _scene.add(ring);
       e._tellRing = ring;
-      if (sfx && sfx.bossWarn) sfx.bossWarn();
+      if (sfx && sfx.bossSpawn) sfx.bossSpawn();
     }
   }
 }

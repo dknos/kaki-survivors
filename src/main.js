@@ -40,6 +40,8 @@ import { showTeaSteep } from './teasteep.js';
 import { initTotems, tickTotems, resetTotems } from './totems.js';
 import { initPylons, tickPylons, resetPylons } from './pylons.js';
 import { initBells, tickBells, resetBells } from './bells.js';
+import { initEnemyTells, updateEnemyTells, resetEnemyTells } from './enemyTells.js';
+import { initStageHazards, tickStageHazards, resetStageHazards } from './stageHazards.js';
 
 // ── Bootstrap ─────────────────────────────────────────────────────────────────
 
@@ -146,6 +148,8 @@ async function boot() {
   initTotems(scene);
   initPylons(scene);
   initBells(scene);
+  initEnemyTells(scene);
+  initStageHazards(scene);
   initChests(scene);
   initPickups(scene);
   initBossTelegraphs(scene);
@@ -293,6 +297,8 @@ function _teardownActiveRun() {
   resetTotems();
   resetPylons();
   resetBells();
+  resetEnemyTells();
+  resetStageHazards();
   resetCatacomb();
   resetBossTelegraphs();
   resetDestructibles();
@@ -719,6 +725,8 @@ function frame(now) {
   tickTotems(logicDt);
   tickPylons(logicDt);
   tickBells(logicDt);
+  updateEnemyTells(logicDt);
+  tickStageHazards(logicDt);
   tickPickups(logicDt);
   tickCatacombEntrance(logicDt);
   updateBlobShadows();

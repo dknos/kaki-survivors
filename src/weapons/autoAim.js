@@ -130,7 +130,7 @@ export default {
       spawnProjectile(hero, dir, level, dmg, projSpeedMul, pierceBonus, evo ? 'volley' : 'autoaim');
     }
 
-    try { sfx.shoot(); } catch (_) {}
+    try { sfx.weaponAutoaim(); } catch (_) {}
 
     inst.cd = level.cooldown * (state.hero.statMul.cooldown || 1);
   },

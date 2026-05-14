@@ -11,6 +11,7 @@ import { damageEnemy, queryRadius } from '../enemies.js';
 import { tex } from '../particleTextures.js';
 import { BLOOM_LAYER } from '../postfx.js';
 import { cloneCached } from '../assets.js';
+import { sfx } from '../audio.js';
 
 // ── Shared geometries + materials (cached across all orbs for batching) ──
 const BUN_GEO    = new THREE.CylinderGeometry(0.30, 0.34, 0.16, 18);
@@ -209,6 +210,7 @@ export default {
         if (now - last >= level.dmgInterval) {
           const src = inst.evolved ? 'toxic_halo' : 'orbitals';
           damageEnemy(enemy, dmg, src);
+          try { sfx.weaponBurger(); } catch (_) {}
           orb.lastHitTime.set(enemy, now);
           // Toxic Halo: stamp a poison DoT (1s @ dmg/2 per second)
           if (inst.evolved) {

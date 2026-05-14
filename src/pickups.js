@@ -11,6 +11,7 @@ import * as THREE from 'three';
 import { state } from './state.js';
 import { spawnMagnetSpark } from './fx.js';
 import { HERO } from './config.js';
+import { sfx } from './audio.js';
 
 const ATTRACT_MUL = 2.5;    // attraction radius = pickupRadius × this
 const ATTRACT_ACCEL = 28;
@@ -198,9 +199,12 @@ export function tickPickups(dt) {
       // Heal
       const before = state.hero.hp;
       state.hero.hp = Math.min(state.hero.hpMax, state.hero.hp + 25 * (state.run.heartPotency || 1));
-      if (state.hero.hp > before) {
+      const healed = state.hero.hp - before;
+      if (healed > 0) {
         spawnMagnetSpark(state.hero.pos.x, 1.5, state.hero.pos.z);
+        try { import('./damageNumbers.js').then(m => m.spawnHealNumber && m.spawnHealNumber(healed)); } catch (_) {}
       }
+      try { sfx.heartPickup(); } catch (_) {}
       continue;
     }
     _writeMatrix(_heartInst, i, p, 1.0);
@@ -225,6 +229,7 @@ export function tickPickups(dt) {
       }
       state.fx.bloomBoost = Math.max(state.fx.bloomBoost, 0.6);
       state.fx.chromaticPulse = 0.6;
+      try { sfx.starPickup(); } catch (_) {}
       continue;
     }
     _writeMatrix(_starInst, i, p, 1.2);
@@ -299,6 +304,7 @@ export function tickPickups(dt) {
 
 // Bomb: AoE 50 damage to all enemies within 18 units of pickup point.
 function _bombEffect(x, z) {
+  try { sfx.weaponBomb(); } catch (_) {}
   // Dynamic import to dodge any circular setup at load.
   import('./enemies.js').then(({ queryRadius, damageEnemy }) => {
     const cands = queryRadius({ x, z }, 18);

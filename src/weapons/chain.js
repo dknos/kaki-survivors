@@ -205,7 +205,7 @@ export default {
       from = next;
     }
 
-    try { sfx.shoot(); } catch (_) {}
+    try { sfx.weaponChain(); } catch (_) {}
     const cdMul = state.hero.statMul.cooldown || 1;
     inst.cd = (inst.evolved ? 0.30 : level.cooldown) * cdMul;
   },

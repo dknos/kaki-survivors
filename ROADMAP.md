@@ -17,6 +17,30 @@
 > **Server**: http://localhost:5180/. Always re-curl after changes to confirm modules still serve.
 >
 > **Definition of done (overall)**: every Active-queue item checked, no critical bugs, victory + defeat flows polish-complete, game balanced enough to be enjoyable for ~15 min runs.
+
+## 🎯 SHIPPABILITY ROADMAP (2026-05-13 advisor gap analysis)
+
+After consultation with the design advisor, ten iterations have been queued
+to close the gap with Vampire Survivors / Brotato / Halls of Torment /
+20 Minutes Till Dawn / Death Must Die / Soulstone Survivors. Each is
+parallelizable into ~3 concurrent sub-tasks via background agents.
+
+| #  | Iteration               | Mitigation                                   |
+|----|-------------------------|----------------------------------------------|
+| 1  | Combat Grammar          | Risk #2: legibility / tactical clarity       |
+| 2  | One More Slot           | Risk #1: build combinatorics                 |
+| 3  | Controller First        | Shippability blocker (real players)          |
+| 4  | Stage Rules             | Stage individuality (gimmick per biome)      |
+| 5  | Teach the Loop          | Onboarding sequence (tutorial beats)         |
+| 6  | Meta With Teeth         | Meta depth (branching upgrades)              |
+| 7  | Roster Pressure         | Roster diversity (8 chars, distinct rules)   |
+| 8  | Enemy Identity          | Silhouette readability per tier              |
+| 9  | Retention Hooks         | Daily/seed sharing, personal best polish     |
+| 10 | Polish Lock             | Balance freeze, perf soak, ship              |
+
+Two existential risks the advisor flagged:
+1. **Build depth fails before content catches up** — addressed in iter 2/7
+2. **Visually rich but tactically unreadable** — addressed in iter 1/8
 >
 > **End condition**: When the Active queue is empty, append a final "🏁 SHIPPING COMPLETE" line to the iteration log and STOP scheduling wakeups (omit the `ScheduleWakeup` call). Do not invent unbounded new items just to keep looping.
 

@@ -7,6 +7,7 @@
 import * as THREE from 'three';
 import { state } from '../state.js';
 import { tex } from '../particleTextures.js';
+import { sfx } from '../audio.js';
 
 const WEB_CAP = 24;
 const WEB_Y = 0.05;
@@ -117,6 +118,7 @@ export default {
     if (inst.cd > 0) return;
     const h = state.hero.pos;
     _spawnWeb(h.x, h.z, level, !!inst.evolved);
+    try { sfx.weaponWeb(); } catch (_) {}
     inst.cd = level.cooldown * (state.hero.statMul.cooldown || 1) * (inst.evolved ? 0.7 : 1);
   },
 

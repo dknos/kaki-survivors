@@ -584,8 +584,19 @@ export function killEnemy(enemy) {
     arr.pop();
   }
 
-  if (sfx && typeof sfx.hit === 'function') sfx.hit();
+  if (sfx) {
+    if (enemy.elite || enemy.isMiniBoss || enemy.isFinalBoss) {
+      if (sfx.eliteDeath) sfx.eliteDeath();
+    } else if (sfx.enemyDeath) {
+      sfx.enemyDeath();
+    }
+  }
 }
+
+// Heavy throttle counter for enemyHurt — 1-in-4 calls actually fire (in
+// addition to audio.js's own 30ms gap). Prevents a wall of crit-pings during
+// large swarms while keeping per-hit feedback present.
+let _enemyHurtCounter = 0;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Damage interface (called by weapons)
@@ -605,6 +616,8 @@ export function damageEnemy(enemy, dmg, source) {
   state.run.dmgByWeapon[src] = (state.run.dmgByWeapon[src] || 0) + finalDmg;
   spawnDamageNumber(enemy.mesh.position, finalDmg, isCrit);
   enemy._flashUntil = state.time.game + (isCrit ? 0.14 : 0.08);
+  // Light "ow" tick — heavy 1-in-4 throttle on top of audio.js's per-method gap.
+  if ((++_enemyHurtCounter & 3) === 0 && sfx && sfx.enemyHurt) sfx.enemyHurt();
   if (isCrit) state.fx.shake = Math.max(state.fx.shake || 0, 0.20);
   if (enemy.hp <= 0) {
     // Hit-stop + shake: bigger for elites. Normal kills get only hit-stop —

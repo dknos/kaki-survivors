@@ -14,6 +14,7 @@ import { queryRadius, damageEnemy } from './enemies.js';
 import { spawnKillRing } from './fx.js';
 import { spawnDashStreak } from './vfxBurst.js';
 import { smashLogsInRadius } from './destructibles.js';
+import { spawnHeroDamageNumber } from './damageNumbers.js';
 
 const _tmpDir = new THREE.Vector3();
 
@@ -136,6 +137,7 @@ export function updateHero(dt) {
       h.dashUntil = state.time.real + dur;
       h._airDashUntil = isAirborne ? state.time.real + dur : 0;
       h.dashCD = cfg.cooldown;
+      if (sfx && sfx.weaponDash) sfx.weaponDash();
       h.iFramesUntil = state.time.game + cfg.iFrames;
       if (isAirborne) {
         h.velY = 0;             // freeze vertical motion at dash start
@@ -181,7 +183,9 @@ export function updateHero(dt) {
     }
   }
 
-  const speed = HERO.speed * speedMul;
+  // Stage hazard slow (pollen drifts, etc.) — read by hero movement.
+  const hazardSlow = h.hazardSlow || 1;
+  const speed = HERO.speed * speedMul * hazardSlow;
   // While dashing, override input direction with the locked dashDir
   const dx = dashing ? h.dashDir.x : (mv.x + mv.y) * SQRT_HALF;
   const dz = dashing ? h.dashDir.z : (mv.y - mv.x) * SQRT_HALF;
@@ -309,7 +313,8 @@ export function takeDamage(amt) {
   if (state.fx.shake < 0.30 + 0.30 * sev) state.fx.shake = 0.30 + 0.30 * sev;
   // Deeper "ouch" SFX for harder hits. Wired in audio.js.
   try { flashDamage(sev); } catch (_) {}
-  if (sfx && sfx.heroHit) sfx.heroHit();
+  if (sfx && sfx.heroHurt) sfx.heroHurt();
+  try { spawnHeroDamageNumber(amt); } catch (_) {}
 
   if (h.hp <= 0) {
     h.hp = 0;
@@ -317,6 +322,7 @@ export function takeDamage(amt) {
     state.dyingUntil = state.time.real + 1.4;
     state.fx.shake = 1.0;
     state.fx.chromaticPulse = 1;
+    if (sfx && sfx.heroDeath) sfx.heroDeath();
     // death screen deferred until anim plays out — see updateDeathAnim
   }
 }

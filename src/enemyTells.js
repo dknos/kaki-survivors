@@ -1,0 +1,265 @@
+/**
+ * Enemy "tells" — readable silhouette cues so threats parse at a glance,
+ * BEFORE the first hit lands.
+ *
+ * Three InstancedMesh layers, all on BLOOM_LAYER so they participate in the
+ * existing post-FX bloom pass (additive blending, reads under bloom without
+ * blowing out the swarm):
+ *
+ *   1. Elite ground rings   — flat ring under elites / mini / final boss,
+ *                             color-coded by threat tier (gold/magenta/red).
+ *   2. Ranged wind-up tells — a small additive crescent above ranged-enemy
+ *                             heads, appears in the last 0.6s before they fire.
+ *   3. Threat dot           — pulsing dot floating above mini-boss / final boss
+ *                             so the eye locks on them through a crowd.
+ *
+ * PERF: zero per-frame allocations — all temps are module-scope. Hidden
+ * instance slots collapse to zero scale + y=-1000 (same pattern as gems /
+ * blob shadows). Caps are intentionally tight; if a horde overruns them the
+ * excess simply doesn't render its tell (gameplay-safe).
+ */
+import * as THREE from 'three';
+import { state } from './state.js';
+import { BLOOM_LAYER } from './postfx.js';
+
+// ── Caps ──────────────────────────────────────────────────────────────────
+const ELITE_RING_CAP   = 32;
+const RANGED_TELL_CAP  = 16;
+const THREAT_DOT_CAP   = 8;
+
+// ── Tunables ──────────────────────────────────────────────────────────────
+const RING_INNER       = 1.3;
+const RING_OUTER       = 1.5;
+const RING_Y           = 0.04;
+const HIDE_Y           = -1000;
+
+const RANGED_WINDUP    = 0.6;   // seconds before fire when the tell starts
+const RANGED_TELL_Y    = 1.9;   // above enemy head
+const RANGED_TELL_SIZE = 0.45;
+
+const DOT_Y            = 2.4;
+const DOT_SIZE         = 0.30;
+
+// Threat-tier colors
+const COL_ELITE        = new THREE.Color(0xffd24a);
+const COL_MINI         = new THREE.Color(0xff66ee);
+const COL_FINAL        = new THREE.Color(0xff3344);
+const COL_RANGED       = new THREE.Color(0x88ddff);
+const COL_DOT_MINI     = new THREE.Color(0xff66ee);
+const COL_DOT_FINAL    = new THREE.Color(0xff3344);
+
+// ── Module-scope temps (reuse — zero per-frame allocations) ───────────────
+const _mat       = new THREE.Matrix4();
+const _pos       = new THREE.Vector3();
+const _scl       = new THREE.Vector3();
+const _quat      = new THREE.Quaternion();
+const _hideMat   = new THREE.Matrix4();
+const _axisY     = new THREE.Vector3(0, 1, 0);
+const _zeroQuat  = new THREE.Quaternion();
+const _hidePos   = new THREE.Vector3(0, HIDE_Y, 0);
+const _hideScl   = new THREE.Vector3(0, 0, 0);
+_hideMat.compose(_hidePos, _zeroQuat, _hideScl);
+
+// ── State ─────────────────────────────────────────────────────────────────
+let _scene       = null;
+let _eliteRings  = /** @type {THREE.InstancedMesh|null} */ (null);
+let _rangedTells = /** @type {THREE.InstancedMesh|null} */ (null);
+let _threatDots  = /** @type {THREE.InstancedMesh|null} */ (null);
+
+// ──────────────────────────────────────────────────────────────────────────
+// Init
+// ──────────────────────────────────────────────────────────────────────────
+export function initEnemyTells(scene) {
+  _scene = scene;
+
+  // ── Elite ground ring ──
+  // RingGeometry is authored in the XY plane; rotate to ground.
+  const ringGeo = new THREE.RingGeometry(RING_INNER, RING_OUTER, 48);
+  ringGeo.rotateX(-Math.PI / 2);
+  const ringMat = new THREE.MeshBasicMaterial({
+    color: 0xffffff,
+    transparent: true,
+    opacity: 0.85,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+    side: THREE.DoubleSide,
+  });
+  _eliteRings = new THREE.InstancedMesh(ringGeo, ringMat, ELITE_RING_CAP);
+  _eliteRings.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  _eliteRings.frustumCulled = false;
+  _eliteRings.renderOrder = 4;
+  _eliteRings.layers.enable(BLOOM_LAYER);
+  if (_eliteRings.instanceColor === null) {
+    // Allocate per-instance color buffer so each ring can be tier-tinted.
+    const colors = new Float32Array(ELITE_RING_CAP * 3);
+    _eliteRings.instanceColor = new THREE.InstancedBufferAttribute(colors, 3);
+  }
+  for (let i = 0; i < ELITE_RING_CAP; i++) {
+    _eliteRings.setMatrixAt(i, _hideMat);
+    _eliteRings.setColorAt(i, COL_ELITE);
+  }
+  _eliteRings.instanceMatrix.needsUpdate = true;
+  if (_eliteRings.instanceColor) _eliteRings.instanceColor.needsUpdate = true;
+  _scene.add(_eliteRings);
+
+  // ── Ranged wind-up tell ──
+  // Crescent built from a thin ring arc, tilted so it floats above the head
+  // and reads as a charging glyph from the iso camera.
+  const tellGeo = new THREE.RingGeometry(RANGED_TELL_SIZE * 0.55, RANGED_TELL_SIZE, 24, 1, Math.PI * 0.15, Math.PI * 0.7);
+  tellGeo.rotateX(-Math.PI / 2.4);
+  const tellMat = new THREE.MeshBasicMaterial({
+    color: COL_RANGED,
+    transparent: true,
+    opacity: 0.9,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+    side: THREE.DoubleSide,
+  });
+  _rangedTells = new THREE.InstancedMesh(tellGeo, tellMat, RANGED_TELL_CAP);
+  _rangedTells.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  _rangedTells.frustumCulled = false;
+  _rangedTells.renderOrder = 5;
+  _rangedTells.layers.enable(BLOOM_LAYER);
+  for (let i = 0; i < RANGED_TELL_CAP; i++) {
+    _rangedTells.setMatrixAt(i, _hideMat);
+  }
+  _rangedTells.instanceMatrix.needsUpdate = true;
+  _scene.add(_rangedTells);
+
+  // ── Threat-tier dot (mini-boss / final boss billboard) ──
+  const dotGeo = new THREE.PlaneGeometry(DOT_SIZE, DOT_SIZE);
+  const dotMat = new THREE.MeshBasicMaterial({
+    color: 0xffffff,
+    transparent: true,
+    opacity: 0.95,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+    side: THREE.DoubleSide,
+  });
+  _threatDots = new THREE.InstancedMesh(dotGeo, dotMat, THREAT_DOT_CAP);
+  _threatDots.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  _threatDots.frustumCulled = false;
+  _threatDots.renderOrder = 6;
+  _threatDots.layers.enable(BLOOM_LAYER);
+  if (_threatDots.instanceColor === null) {
+    const colors = new Float32Array(THREAT_DOT_CAP * 3);
+    _threatDots.instanceColor = new THREE.InstancedBufferAttribute(colors, 3);
+  }
+  for (let i = 0; i < THREAT_DOT_CAP; i++) {
+    _threatDots.setMatrixAt(i, _hideMat);
+    _threatDots.setColorAt(i, COL_DOT_MINI);
+  }
+  _threatDots.instanceMatrix.needsUpdate = true;
+  if (_threatDots.instanceColor) _threatDots.instanceColor.needsUpdate = true;
+  _scene.add(_threatDots);
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Per-frame update
+// ──────────────────────────────────────────────────────────────────────────
+export function updateEnemyTells(dt) {
+  if (!_eliteRings || !_rangedTells || !_threatDots) return;
+
+  const active = state.enemies.active;
+  const t      = state.time.game;
+  const heroP  = state.hero.pos;
+
+  // Ring pulse: subtle radial throb so the silhouette doesn't read as a static decal.
+  const ringPulse = 1 + Math.sin(t * 4.5) * 0.04;
+  // Dot pulse: faster + bigger amplitude so the eye locks onto mini/final.
+  const dotPulse  = 1 + Math.sin(t * 8.0) * 0.18;
+  const dotOpacityPulse = 0.7 + 0.3 * (0.5 + 0.5 * Math.sin(t * 11.0));
+
+  let ringSlot = 0;
+  let tellSlot = 0;
+  let dotSlot  = 0;
+
+  for (let i = 0; i < active.length; i++) {
+    const e = active[i];
+    if (!e || !e.alive) continue;
+    const ep = e.mesh.position;
+
+    // ── 1. Elite ring ──
+    if (e.elite && ringSlot < ELITE_RING_CAP) {
+      let col = COL_ELITE;
+      if (e.isFinalBoss)      col = COL_FINAL;
+      else if (e.isMiniBoss)  col = COL_MINI;
+
+      _pos.set(ep.x, RING_Y, ep.z);
+      _scl.set(ringPulse, 1, ringPulse);
+      _mat.compose(_pos, _zeroQuat, _scl);
+      _eliteRings.setMatrixAt(ringSlot, _mat);
+      _eliteRings.setColorAt(ringSlot, col);
+      ringSlot++;
+    }
+
+    // ── 2. Ranged wind-up tell ──
+    // e.ranged is the tier config block; e.rangedCD ticks down toward 0 in
+    // enemies.js. When it's <= RANGED_WINDUP, the enemy is about to fire.
+    // After firing, rangedCD is reset to r.cooldown (well above RANGED_WINDUP),
+    // so the tell naturally vanishes.
+    if (e.ranged && e.rangedCD > 0 && e.rangedCD <= RANGED_WINDUP && tellSlot < RANGED_TELL_CAP) {
+      // Aim crescent toward hero so it doubles as a directional cue.
+      const dx = heroP.x - ep.x;
+      const dz = heroP.z - ep.z;
+      const yaw = Math.atan2(dx, dz);
+      _quat.setFromAxisAngle(_axisY, yaw);
+
+      // Grow as the wind-up progresses: small at 0.6s out, full at fire.
+      const k = 1 - (e.rangedCD / RANGED_WINDUP);          // 0 → 1
+      const grow = 0.6 + k * 0.8;                          // 0.6 → 1.4
+      const flick = 1 + Math.sin(t * 28.0) * 0.18;
+      _pos.set(ep.x, RANGED_TELL_Y, ep.z);
+      _scl.set(grow * flick, grow * flick, grow * flick);
+      _mat.compose(_pos, _quat, _scl);
+      _rangedTells.setMatrixAt(tellSlot, _mat);
+      tellSlot++;
+    }
+
+    // ── 3. Threat dot (mini-boss + final boss) ──
+    if ((e.isMiniBoss || e.isFinalBoss) && dotSlot < THREAT_DOT_CAP) {
+      const col = e.isFinalBoss ? COL_DOT_FINAL : COL_DOT_MINI;
+      _pos.set(ep.x, DOT_Y + Math.sin(t * 3 + i) * 0.08, ep.z);
+      _scl.set(dotPulse, dotPulse, dotPulse);
+      _mat.compose(_pos, _zeroQuat, _scl);
+      _threatDots.setMatrixAt(dotSlot, _mat);
+      _threatDots.setColorAt(dotSlot, col);
+      dotSlot++;
+    }
+  }
+
+  // Collapse unused slots so leftover instances from prior frames don't render.
+  for (let i = ringSlot; i < ELITE_RING_CAP; i++) {
+    _eliteRings.setMatrixAt(i, _hideMat);
+  }
+  for (let i = tellSlot; i < RANGED_TELL_CAP; i++) {
+    _rangedTells.setMatrixAt(i, _hideMat);
+  }
+  for (let i = dotSlot; i < THREAT_DOT_CAP; i++) {
+    _threatDots.setMatrixAt(i, _hideMat);
+  }
+
+  // Drive the dot's per-frame opacity pulse on the shared material — cheap
+  // and saves us setting per-instance alpha (which InstancedMesh can't do
+  // without a custom shader).
+  _threatDots.material.opacity = dotOpacityPulse;
+
+  _eliteRings.instanceMatrix.needsUpdate = true;
+  if (_eliteRings.instanceColor) _eliteRings.instanceColor.needsUpdate = true;
+  _rangedTells.instanceMatrix.needsUpdate = true;
+  _threatDots.instanceMatrix.needsUpdate = true;
+  if (_threatDots.instanceColor) _threatDots.instanceColor.needsUpdate = true;
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Reset (called from main.js on run restart)
+// ──────────────────────────────────────────────────────────────────────────
+export function resetEnemyTells() {
+  if (!_eliteRings || !_rangedTells || !_threatDots) return;
+  for (let i = 0; i < ELITE_RING_CAP; i++) _eliteRings.setMatrixAt(i, _hideMat);
+  for (let i = 0; i < RANGED_TELL_CAP; i++) _rangedTells.setMatrixAt(i, _hideMat);
+  for (let i = 0; i < THREAT_DOT_CAP;  i++) _threatDots.setMatrixAt(i, _hideMat);
+  _eliteRings.instanceMatrix.needsUpdate = true;
+  _rangedTells.instanceMatrix.needsUpdate = true;
+  _threatDots.instanceMatrix.needsUpdate = true;
+}
