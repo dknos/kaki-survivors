@@ -99,7 +99,7 @@ export const ENEMY_TIERS = [
   { glb: 'dragon',    hp: 400, spd: 1.2, dmg: 30, minD: 7.0, weight: 1,  scale: 1.4, elite: true },
   // New animated Quaternius tiers
   { glb: 'spider',    hp: 8,   spd: 3.2, dmg: 5,  minD: 1.2, weight: 6,  scale: 0.85 },
-  { glb: 'wolf',      hp: 18,  spd: 3.0, dmg: 7,  minD: 2.0, weight: 5,  scale: 1.0, faceFlip: true },
+  { glb: 'wolf',      hp: 18,  spd: 3.0, dmg: 7,  minD: 2.0, weight: 5,  scale: 1.0, faceFlip: true, procAnim: 'pad' },
   { glb: 'wizard',    hp: 25,  spd: 1.6, dmg: 8,  minD: 3.0, weight: 4,  scale: 0.95,
     ranged: { range: 14, stopAt: 10, cooldown: 2.4, projSpeed: 9, projDmg: 9, projTtl: 2.4 } },
   { glb: 'ghost',     hp: 35,  spd: 2.4, dmg: 11, minD: 4.0, weight: 4,  scale: 1.0, ghostly: true },
@@ -110,6 +110,7 @@ export const ENEMY_TIERS = [
   //   'hover' = small bob + rapid jitter (bee/wasp)
   //   'hop'   = vertical bounce (grasshopper)
   //   'inch'  = slow accordion squash (caterpillar)
+  //   'pad'   = quadruped padding gait (wolf/dog): vertical bob + shoulder roll
   { glb: 'ant',         hp: 5,   spd: 3.0, dmg: 4,  minD: 0.0, weight: 14, scale: 0.55, procAnim: 'crawl' },
   { glb: 'beetle',      hp: 14,  spd: 1.9, dmg: 5,  minD: 0.3, weight: 10, scale: 0.75, procAnim: 'crawl' },
   { glb: 'ladybug',     hp: 10,  spd: 2.4, dmg: 5,  minD: 0.5, weight: 8,  scale: 0.65, procAnim: 'crawl' },
@@ -117,7 +118,7 @@ export const ENEMY_TIERS = [
   { glb: 'butterfly',   hp: 8,   spd: 2.6, dmg: 4,  minD: 0.8, weight: 6,  scale: 0.75, procAnim: 'flap' },
   { glb: 'bee',         hp: 14,  spd: 2.8, dmg: 7,  minD: 1.5, weight: 6,  scale: 0.60, procAnim: 'hover', faceYaw: -Math.PI / 2 },
   { glb: 'cockroach',   hp: 8,   spd: 3.6, dmg: 5,  minD: 1.3, weight: 7,  scale: 0.55, procAnim: 'crawl' },
-  { glb: 'wasp',        hp: 18,  spd: 2.8, dmg: 9,  minD: 2.0, weight: 5,  scale: 0.70, procAnim: 'hover' },
+  { glb: 'wasp',        hp: 18,  spd: 2.8, dmg: 9,  minD: 2.0, weight: 5,  scale: 0.70, procAnim: 'hover', faceYaw: -Math.PI / 2 },
   { glb: 'caterpillar', hp: 60,  spd: 1.0, dmg: 10, minD: 2.5, weight: 3,  scale: 0.90, procAnim: 'inch' },
   { glb: 'mantis',      hp: 45,  spd: 2.0, dmg: 12, minD: 3.0, weight: 4,  scale: 1.00, procAnim: 'crawl' },
 ];

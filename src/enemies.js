@@ -414,6 +414,18 @@ function _applyProcAnim(e) {
       m.position.y = baseY + Math.abs(s) * 0.03;
       break;
     }
+    case 'pad': {
+      // Quadruped padding gait — gentle vertical bob + slight side-to-side
+      // shoulder roll. Reads as a wolf/dog stalking forward.
+      const stride = Math.sin(p * 8);
+      const roll   = Math.sin(p * 4);     // half-frequency = shoulder sway
+      m.position.y = baseY + Math.abs(stride) * 0.08;
+      m.scale.x = baseS * (1 + stride * 0.05);
+      m.scale.z = baseS * (1 - stride * 0.03);
+      m.scale.y = baseS * (1 + Math.abs(stride) * 0.02);
+      m.rotation.z = roll * 0.07;
+      break;
+    }
   }
 }
 
