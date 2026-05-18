@@ -11,6 +11,12 @@ import {
 } from './assets.js';
 import { createComposer, resizeComposer, BLOOM_LAYER, applyAccessibilityOptions } from './postfx.js';
 import { buildEnv } from './env.js';
+// PHASE 4 P4A (2026-05-18, cohort 1 of N) — Cave stage skeleton. Static
+// import per [[feedback_kks_export_origin_module_break.md]]. Build/dispose
+// hook in applyMetaUpgrades (stage.id === 'cave' arm) + _teardownActiveRun.
+// Layered cohorts (P4A-c2 … P4A-cN) extend cave with rooms, weapons,
+// hazards, neutrals, landmarks, music, textures, achievements.
+import { buildCaveStage, disposeCaveStage } from './stages/cave/caveStage.js';
 import { unlockAudio, startMusic, setMusicTier, setVolume, setMasterVolume, setMusicVolume, setSfxVolume, setAmbientVolume, suspendAudio, resumeAudio, sfx, playStageAmbient, _debug as _audioDebug } from './audio.js';
 import { getMeta, shopLevel, selectedCharacter, selectedAvatar, dailyChallengeConfig, equippedRelic, selectedStage, QUEST_TEMPLATES, weeklyMutatorConfig, commitWeeklyRun, setOption, SHOP_TREE, recordAvatarRun } from './meta.js';
 import { applyWeeklyMutator } from './weeklyMutator.js';
@@ -936,6 +942,10 @@ function _teardownActiveRun() {
   // cooldown timestamps live on _pads; wiping the array wipes the cooldown
   // state alongside it, so nothing leaks across runs.
   if (state.scene) clearVoidTeleportPads(state.scene);
+  // P4A cohort 1 — tear down cave decor (no-op on non-cave stages — early
+  // return inside disposeCaveStage when _group is null). Mirrors the
+  // forestAmber/twilight/cinder/void teardown shape.
+  if (state.scene) disposeCaveStage(state.scene);
   // Drop any live Ascension burst + 30s player rim. Mirrors the chainFx
   // teardown shape; matters when the player dies mid-rim (would otherwise
   // ghost-attach a glowing ring to the next run's hero spawn position).
@@ -1422,6 +1432,7 @@ function applyMetaUpgrades() {
       clearCinderHazards(state.scene);
       clearVoidTeleportPads(state.scene);
       clearVoidHazards(state.scene);
+      disposeCaveStage(state.scene);     // P4A: cave decor must be gone on forest
     } else if (stage.id === 'twilight') {
       // Phase-2 swarm: Blood/Light Fountains — proximity drink → 1.75× move
       // speed for 4s, 30s per-fountain cooldown. Fire-and-forget; hero.js
@@ -1466,6 +1477,7 @@ function applyMetaUpgrades() {
       clearCinderHazards(state.scene);
       clearVoidTeleportPads(state.scene);
       clearVoidHazards(state.scene);
+      disposeCaveStage(state.scene);     // P4A: cave decor must be gone on twilight
     } else if (stage.id === 'cinder') {
       // Phase-2 swarm: Cinder Ballistas — proximity-triggered 10s repair →
       // permanent auto-fire piercing bolts. Fire-and-forget; tickCinderBallistas
@@ -1511,6 +1523,7 @@ function applyMetaUpgrades() {
       clearTwilightHazards(state.scene);
       clearVoidTeleportPads(state.scene);
       clearVoidHazards(state.scene);
+      disposeCaveStage(state.scene);     // P4A: cave decor must be gone on cinder
     } else if (stage.id === 'void') {
       // Phase-2 swarm: Void Teleport Pads — proximity-triggered (≤1.2u) instant
       // pad-to-pad teleport with 6s per-pad cooldown + 0.4s iFrames on arrival.
@@ -1562,6 +1575,50 @@ function applyMetaUpgrades() {
       clearTwilightHazards(state.scene);
       clearCinderBallistas(state.scene);
       clearCinderHazards(state.scene);
+      disposeCaveStage(state.scene);     // P4A: cave decor must be gone on void
+    } else if (stage.id === 'cave') {
+      // PHASE 4 P4A (2026-05-18, cohort 1 of N) — Cave stage skeleton.
+      // Builds the placeholder decor group (slot-2 floor accent +
+      // stalactite-placeholder box). Layered cohorts add rooms, weapons,
+      // hazards, neutrals, landmarks. Defensive teardown mirrors the
+      // void branch's pattern: any forest/twilight/cinder/void decor
+      // surviving from a previous run gets dropped on cave entry.
+      try {
+        buildCaveStage(state.scene);
+      } catch (e) {
+        console.warn('[main] buildCaveStage failed:', e);
+      }
+      clearForestAmber(state.scene);
+      clearForestHazards(state.scene);
+      clearForestPortals(state.scene);
+      disposeFlowWeaver(state.scene);
+      disposeHarmonicAlignment(state.scene);
+      disposePrismLock(state.scene);
+      disposeMossrootPulse(state.scene);   // FE-V2
+      disposeForestLandmarks(state.scene); state._landmarksLoaded = false; // FE-V2 Landmarks
+      disposeForestCoffins(state.scene);   state._coffinsLoaded   = false; // FE-V2 Coffins
+      disposeForestNeutrals(state.scene);  state._neutralsLoaded  = false; // FE-V2 Neutrals
+      disposeForestEnvHazards(state.scene); state._envHazardsLoaded = false; // FE-V2 EnvHazards
+      disposeForestChests(state.scene);     state._chestsLoaded     = false; // FOREST-V2-A6 Chests
+      disposeForestSealedDoors();           state._sealedDoorsLoaded = false; // FOREST-V2-A14 Sealed Doors
+      disposeForestReaper(state.scene);     state._reaperLoaded     = false; // FOREST-V2-A7 Reaper
+      disposeForestPickups(state.scene);    state._pickupsLoaded    = false; // FOREST-V2-A8 Pickups
+      disposeForestWeaponDrops(state.scene); state._weaponDropsLoaded = false; // FOREST-V2-A17 Weapon Drops
+      disposeForestDayNight(state.scene);   state._dayNightLoaded   = false; // FOREST-V2-A9 Day/Night
+      disposeForestSkyDome(state.scene);    state._skyDomeLoaded    = false; // FOREST-V2-A34 Sky Dome
+      disposeForestHud();                   state._hudLoaded        = false; // FOREST-V2-A10 Stage HUD
+      disposeForestSigilArc();              state._sigilArcLoaded   = false; // PHASE 1 P1G Sigil Arc
+      disposeForestEmitters();              state._emittersLoaded   = false; // PHASE 1 P1I Ambient Emitters
+      disposeForestBossBars();              state._bossBarsLoaded   = false; // FOREST-V2-A11 Boss HP Bars
+      disposeBossIntroCinematic();          state._bossIntroLoaded  = false; // PHASE 1 P1E Boss Intro Cinematic
+      disposeEvolveCinematic();             state._evolveCinematicLoaded = false; // PHASE 1 P1J Weapon Evolve Cinematic
+      disposeEndRunSummary();               state._endRunSummaryLoaded = false; // PHASE 1 P1F End-of-run Summary
+      clearTwilightFountains(state.scene);
+      clearTwilightHazards(state.scene);
+      clearCinderBallistas(state.scene);
+      clearCinderHazards(state.scene);
+      clearVoidTeleportPads(state.scene);
+      clearVoidHazards(state.scene);
     } else {
       // Defensive: stage transition from forest/twilight/cinder → other should
       // drop all. resetState() path already calls these via the block above,
@@ -1597,6 +1654,7 @@ function applyMetaUpgrades() {
       clearCinderHazards(state.scene);
       clearVoidTeleportPads(state.scene);
       clearVoidHazards(state.scene);
+      disposeCaveStage(state.scene);     // P4A: defensive — cave decor must be gone on unknown stage
     }
   }
   // Per-stage ambient bed (loop). `forest` and `twilight` ship ambient files

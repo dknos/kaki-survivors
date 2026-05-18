@@ -531,6 +531,12 @@ export function preloadStage(stageId) {
     case 'void':
       pairs.push(..._DUNGEON_KIT_PAIRS);
       break;
+    case 'cave':
+      // P4A-cN cohorts add cave-specific GLBs here (stalactites, glowmoss
+      // patches, sealed-door rune kits, gloomshrimp mesh). Cohort 1 ships
+      // the skeleton only — no stage-unique assets yet, just the case-arm
+      // so future cohorts have the hook ready.
+      break;
     default:
       // unknown stage id — load conservative baseline only
       break;

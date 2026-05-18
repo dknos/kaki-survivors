@@ -610,6 +610,22 @@ export const STAGES = [
     fogColor: 0x0a0612,
     unlock: 'unlockedVoid',     // first cinder victory (future hook)
   },
+  // PHASE 4 P4A (2026-05-18, cohort 1 of N) — Cave stage skeleton. Selectable
+  // from menu via STAGE_ART entry in src/menuV2.js. Palette doc at
+  // docs/CAVE_VISUAL_STYLE.md. groundTint (slot-2 stone) + fogColor (slot-1
+  // shadow) pipe through env.js#applyStageTint without modification — cave
+  // currently falls through to the twilight ground pack, lighting falls
+  // through to forest baseline. Layered cohorts (P4A-c2 … P4A-cN) add rooms,
+  // weapons, hazards, neutrals, landmarks, music, textures, achievements.
+  {
+    id: 'cave', name: 'Stonewright Caverns',
+    desc: 'Deep grottos lit by glowmoss. Stalactites loom; the air drips.',
+    enemyHpMul: 1.45,
+    finalBossAt: 720,
+    groundTint: 0x4a4a52,       // slot-2 wet stone (CAVE_PALETTE.stone)
+    fogColor: 0x1a1820,         // slot-1 cave shadow (CAVE_PALETTE.shadow)
+    unlock: 'unlockedCave',     // first void clear (hook for future cohort)
+  },
 ];
 
 export const STAGE = {

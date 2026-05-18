@@ -74,6 +74,18 @@ const STAGE_ART = {
     diff: 'Nightmare',
     waves: 80,
   },
+  // PHASE 4 P4A (2026-05-18, cohort 1 of N) — Cave stage menu card.
+  // bg is slot-1 cave shadow (CAVE_PALETTE.shadow). accent reuses the cave
+  // string so a future SVG art preset can hook on it; falls back to the
+  // forest art template until P4A-cN lands a dedicated cave SVG.
+  cave: {
+    bg: '#1a1820',
+    accent: 'cave',
+    tier: 'Chapter V',
+    sub: 'Stonewright Caverns',
+    diff: 'Hollow',
+    waves: 56,
+  },
 };
 
 const NAV_ITEMS = [
