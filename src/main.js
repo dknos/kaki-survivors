@@ -529,8 +529,12 @@ async function boot() {
     // load, re-run prewarmPools so the spawner has hot pools for the new tiers.
     // Read the stage from meta directly, not state.run.stage — menuV2's stage
     // selector only mutates meta and doesn't re-run applyMetaUpgrades, so
-    // state.run.stage can be stale across stage switches.
-    const _selStage = selectedStage(STAGES);
+    // state.run.stage can be stale across stage switches. Daily / Weekly
+    // force STAGES[0] (forest) inside applyMetaUpgrades for leaderboard
+    // fairness; mirror that here so the preload matches the actual run.
+    const _metaNow = getMeta();
+    const _forcedForest = !!(_metaNow && (_metaNow.optDaily || _metaNow.optWeekly));
+    const _selStage = _forcedForest ? STAGES[0] : selectedStage(STAGES);
     const _stageId = (_selStage && _selStage.id) || 'forest';
     let _stageLoader = null;
     try {
