@@ -131,6 +131,17 @@ Smoke must:
 - Capture 0 page errors.
 - Exit non-zero on failure.
 
+**Smoke gotcha — the weapons gate.** If your smoke skips the menu and
+calls `window.kkStartRun()` directly after page-load, you MUST clear
+`window.kkState.weapons.length = 0` BEFORE the kkStartRun call.
+`start()` in main.js only re-runs `applyMetaUpgrades` when weapons are
+empty (which is true after a death/menu-return in production but
+false on a fresh page-load, since boot's `acquireWeapon` at main.js
+~441 already populated weapons). Without the weapons-clear, your
+`setOption('selectedStage','X')` poke is silently ignored and the run
+sticks on whatever stage was selected at boot (usually forest).
+Canonical example: `tools/smoke-cave-v2.mjs`.
+
 ## 8. TODO sections (draft — filled in as Cave cohorts land them)
 
 ### 8a. Weapon registration
