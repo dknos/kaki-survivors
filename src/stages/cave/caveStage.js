@@ -38,6 +38,7 @@ import * as THREE from 'three';
 import { CAVE_PALETTE } from './cavePalette.js';
 import { buildStalactiteCluster, disposeStalactites } from './caveStalactites.js';
 import { buildGlowmossPatches, disposeGlowmoss, tickGlowmoss } from './caveGlowmoss.js';
+import { buildCeilingDrips, disposeCeilingDrips, tickCeilingDrips } from './caveCeilingDrips.js';
 
 const STAGE_GROUP_NAME = 'caveStage';
 
@@ -100,6 +101,18 @@ export function buildCaveStage(scene) {
   }
   group.userData.glowmossCount = mossCount;
 
+  // P4A cohort 4: ceiling-drip particle system. Pooled InstancedMesh (24
+  // slots) spawning slot-3 moss-emissive streaks from each cohort-2
+  // stalactite tip at 0.5 drips/s scaled by tip count. Fall under gravity,
+  // splash-flatten on landing, recycle. Stashes userData.dripPoolSize on
+  // this caveStage group for the smoke phase 5 probe (the builder writes
+  // it directly; we also read it back for the log line below).
+  try {
+    buildCeilingDrips(group);
+  } catch (e) {
+    console.warn('[caveStage] buildCeilingDrips failed:', e);
+  }
+
   scene.add(group);
   _group = group;
   return group;
@@ -117,6 +130,7 @@ export function buildCaveStage(scene) {
 export function tickCave(dt) {
   if (!_group) return;
   tickGlowmoss(dt);
+  tickCeilingDrips(dt);   // P4A cohort 4 — gravity-fall + landing fade + recycle
 }
 
 /**
@@ -135,6 +149,9 @@ export function disposeCaveStage(scene) {
   // is idempotent and self-detaches from the parent. Drop it before the
   // group traverse below so the traverse doesn't double-dispose.
   try { disposeGlowmoss(); } catch (_) {}
+  // Ceiling drips own their own InstancedMesh + pool state; same idempotent
+  // contract — detach before the group traverse to avoid double-dispose.
+  try { disposeCeilingDrips(); } catch (_) {}
   // Detach the stage group itself so traversal doesn't race with re-add.
   if (_group.parent) _group.parent.remove(_group);
   _group.traverse((o) => {

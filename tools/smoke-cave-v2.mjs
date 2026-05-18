@@ -401,6 +401,78 @@ async function main() {
     });
     console.log('phase 4 (glowmoss + ground pack): ' + (p4.ok ? 'PASS' : 'FAIL') + ' — ' + p4.reason);
 
+    // ── Phase 5 (P4A cohort 4) — Ceiling drip particle system ────────────
+    // Three assertions:
+    //   (a) caveStage.userData.dripPoolSize >= 20 — guards against the
+    //       buildCeilingDrips builder silently no-op'ing (e.g. parent null
+    //       guard short-circuit). Cohort 4 pre-allocates 24 slots.
+    //   (b) InstancedMesh `caveStage_ceilingDrips` mounted + bloom-tagged
+    //       so the slot-3 streak pops under the same chrome as the
+    //       cohort-2 tips and cohort-3 patches.
+    //   (c) After a 2s settle the dynamic drip-spawn module reports
+    //       totalSpawned >= 1. We use a counter (not a snapshot of an
+    //       in-flight slot) because at 0.5/s + 0.3-0.6s flight times the
+    //       "catch one mid-air" probe is a flake per cohort-4 advisor.
+    // For (c), import the module dynamically and call the spawn-counter
+    // accessor — same pattern smoke-cave uses for `meta.js` import.
+    await new Promise((r) => setTimeout(r, 2200));   // settle for spawn dispatcher
+    const p5 = await page.evaluate(async () => {
+      const s = window.kkState;
+      if (!s || !s.scene) return { ok: false, reason: 'kkState/scene missing' };
+      const caveGroup = s.scene.getObjectByName('caveStage');
+      if (!caveGroup) return { ok: false, reason: 'caveStage group missing' };
+      // (a) Pool size
+      const poolSize = (caveGroup.userData && caveGroup.userData.dripPoolSize) | 0;
+      if (poolSize < 20) {
+        return { ok: false, reason: 'dripPoolSize=' + poolSize + ' (expected >=20)' };
+      }
+      // (b) InstancedMesh + bloom
+      const dripGroup = caveGroup.getObjectByName('caveStage_ceilingDrips_group');
+      if (!dripGroup) {
+        return { ok: false, reason: 'caveStage_ceilingDrips_group missing', poolSize };
+      }
+      const dripInst = dripGroup.getObjectByName('caveStage_ceilingDrips');
+      if (!dripInst) {
+        return { ok: false, reason: 'ceilingDrips InstancedMesh missing', poolSize };
+      }
+      const dripBloom = dripInst.layers && typeof dripInst.layers.mask === 'number'
+        ? (dripInst.layers.mask & (1 << 1)) !== 0
+        : false;
+      if (!dripBloom) {
+        return { ok: false, reason: 'ceilingDrips InstancedMesh not bloom-tagged', poolSize };
+      }
+      const dripMat = dripInst.material;
+      if (!dripMat || dripMat.blending !== 2) {
+        // THREE.AdditiveBlending === 2. Verify the additive recipe survived.
+        return { ok: false, reason: 'ceilingDrips material blending=' + (dripMat && dripMat.blending) + ' (expected 2 / AdditiveBlending)', poolSize };
+      }
+      // Slot-3 color sanity (CAVE_PALETTE.moss = 0x7fffe4)
+      const colHex = (dripMat.color && dripMat.color.getHex) ? dripMat.color.getHex() : -1;
+      if (colHex !== 0x7fffe4) {
+        return { ok: false, reason: 'ceilingDrips color=0x' + colHex.toString(16) + ' (expected 0x7fffe4)', poolSize };
+      }
+      // (c) Total-spawned counter via module accessor
+      let totalSpawned = -1;
+      try {
+        const mod = await import('./src/stages/cave/caveCeilingDrips.js');
+        if (mod && typeof mod.getCeilingDripTotalSpawned === 'function') {
+          totalSpawned = mod.getCeilingDripTotalSpawned() | 0;
+        }
+      } catch (e) {
+        return { ok: false, reason: 'caveCeilingDrips import failed: ' + (e && e.message), poolSize };
+      }
+      if (totalSpawned < 1) {
+        return { ok: false, reason: 'totalSpawned=' + totalSpawned + ' (expected >=1 after 2.2s settle)', poolSize };
+      }
+      return {
+        ok: true,
+        reason: 'dripPoolSize=' + poolSize + ', bloom=' + dripBloom
+              + ', additive blending + slot-3 color, totalSpawned=' + totalSpawned,
+        poolSize, totalSpawned,
+      };
+    });
+    console.log('phase 5 (ceiling drips): ' + (p5.ok ? 'PASS' : 'FAIL') + ' — ' + p5.reason);
+
     // ── Summary ───────────────────────────────────────────────────────────
     const runtimeSec = ((Date.now() - t0) / 1000).toFixed(1);
 
@@ -409,21 +481,22 @@ async function main() {
     console.log('phase 2 (stalactites):           ' + (p2.ok  ? 'PASS' : 'FAIL'));
     console.log('phase 3 (env cave branch):       ' + (p3.ok  ? 'PASS' : 'FAIL'));
     console.log('phase 4 (glowmoss + ground pack):' + (p4.ok  ? 'PASS' : 'FAIL'));
+    console.log('phase 5 (ceiling drips):         ' + (p5.ok  ? 'PASS' : 'FAIL'));
     console.log('runtime: ' + runtimeSec + 's');
     console.log('console.errors:  ' + consoleErrors.length);
     for (const e of consoleErrors) console.log('  - ' + e);
     console.log('pageerrors:      ' + pageErrors.length);
     for (const e of pageErrors) console.log('  - ' + e);
 
-    const hardFail = !p1Pass || !p2.ok || !p3.ok || !p4.ok || pageErrors.length > 0;
+    const hardFail = !p1Pass || !p2.ok || !p3.ok || !p4.ok || !p5.ok || pageErrors.length > 0;
     if (hardFail) {
       console.error('[smoke-cave] FAIL — phases='
-                    + (p1Pass?1:0) + (p2.ok?1:0) + (p3.ok?1:0) + (p4.ok?1:0)
+                    + (p1Pass?1:0) + (p2.ok?1:0) + (p3.ok?1:0) + (p4.ok?1:0) + (p5.ok?1:0)
                     + ' pageerrors=' + pageErrors.length);
       exitCode = 1;
     } else {
-      console.log('[smoke-cave] OK — cohort 3 phases 1+2+3+4 passed');
-      console.log('[smoke-cave] cohort 4…N will add rooms / boss / reaper / weapons '
+      console.log('[smoke-cave] OK — cohort 4 phases 1+2+3+4+5 passed');
+      console.log('[smoke-cave] cohort 5…N will add rooms / boss / reaper / weapons '
                   + '— see docs/STAGE_AUTHORING.md §7');
     }
   } catch (e) {

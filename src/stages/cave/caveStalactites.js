@@ -71,7 +71,7 @@ function _mulberry32(seed) {
   };
 }
 
-let _state = null;   // { group, bodyInst, tipsInst, bodyGeo, tipsGeo, bodyMat, tipsMat, count }
+let _state = null;   // { group, bodyInst, tipsInst, bodyGeo, tipsGeo, bodyMat, tipsMat, count, tipPositions }
 
 /**
  * Build the stalactite cluster group and add it to `parent`. Returns the
@@ -137,6 +137,11 @@ export function buildStalactiteCluster(parent) {
 
   const rng = _mulberry32(COHORT_SEED);
   const dummy = new THREE.Object3D();
+  // P4A cohort 4: stash per-stalactite tip world positions so the ceiling-drip
+  // particle system (src/stages/cave/caveCeilingDrips.js) can spawn drips from
+  // each tip without re-deriving matrices. Filled in-loop below; exposed via
+  // getStalactiteTipPositions() — single read-only consumer, no mutation.
+  const tipPositions = [];
 
   let i = 0;
   for (const a of CLUSTER_ANCHORS) {
@@ -183,6 +188,9 @@ export function buildStalactiteCluster(parent) {
       dummy.updateMatrix();
       tipsInst.setMatrixAt(i, dummy.matrix);
 
+      // P4A cohort 4: record this tip's world position for drip spawning.
+      tipPositions.push({ x, y: tipY, z });
+
       i++;
     }
   }
@@ -199,8 +207,23 @@ export function buildStalactiteCluster(parent) {
     group, bodyInst, tipsInst,
     bodyGeo, tipsGeo, bodyMat, tipsMat,
     count: total,
+    tipPositions,
   };
   return { group, count: total };
+}
+
+/**
+ * P4A cohort 4: expose stalactite tip world positions for the ceiling-drip
+ * particle system. Returns an array of `{x, y, z}` (one per stalactite tip,
+ * cohort-2 stalactite spawn order). Empty array when the cluster isn't
+ * mounted — caller should self-gate. Read-only contract: do NOT mutate.
+ *
+ * Minimal-diff addition: positions are recorded during the existing build
+ * loop above (no recomputation, no extra traversal).
+ */
+export function getStalactiteTipPositions() {
+  if (!_state || !_state.tipPositions) return [];
+  return _state.tipPositions;
 }
 
 /**
