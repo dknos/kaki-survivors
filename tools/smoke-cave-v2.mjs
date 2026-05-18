@@ -335,27 +335,95 @@ async function main() {
     });
     console.log('phase 3 (env cave branch): ' + (p3.ok ? 'PASS' : 'FAIL') + ' — ' + p3.reason);
 
+    // ── Phase 4 (P4A cohort 3) — Glowmoss patches + dedicated ground pack ─
+    // Two assertions:
+    //   (a) caveStage.userData.glowmossCount >= 15 — guard against the
+    //       buildGlowmossPatches builder silently no-op'ing (e.g. parent
+    //       null guard short-circuit). 15 is the conservative floor; the
+    //       builder authors 24 per cohort 3 spec.
+    //   (b) envGroup.userData.groundPacks.cave.diff truthy — proves the
+    //       cave-specific pack materialized via the env.js cohort 3
+    //       loadPngTex path AND that applyStageTint can route to it
+    //       (the `isCave ? 'cave' : ...` branch in the packKey ternary).
+    const p4 = await page.evaluate(() => {
+      const s = window.kkState;
+      if (!s || !s.scene) return { ok: false, reason: 'kkState/scene missing' };
+      const caveGroup = s.scene.getObjectByName('caveStage');
+      if (!caveGroup) return { ok: false, reason: 'caveStage group missing' };
+      // (a) Glowmoss count
+      const moss = (caveGroup.userData && caveGroup.userData.glowmossCount) | 0;
+      if (moss < 15) {
+        return { ok: false, reason: 'glowmossCount=' + moss + ' (expected >=15)' };
+      }
+      // Confirm the InstancedMesh itself is wired + bloom-tagged.
+      const mossGroup = caveGroup.getObjectByName('caveStage_glowmoss');
+      if (!mossGroup) return { ok: false, reason: 'caveStage_glowmoss group missing', count: moss };
+      const mossInst = mossGroup.getObjectByName('caveStage_glowmossPatches');
+      if (!mossInst) return { ok: false, reason: 'glowmoss InstancedMesh missing', count: moss };
+      const mossBloom = mossInst.layers && typeof mossInst.layers.mask === 'number'
+        ? (mossInst.layers.mask & (1 << 1)) !== 0
+        : false;
+      if (!mossBloom) {
+        return { ok: false, reason: 'glowmoss InstancedMesh not bloom-tagged', count: moss };
+      }
+      // Z-order guard: ground decals must render BELOW hero (renderOrder < 0
+      // + polygonOffset). Catches a regression that drops either knob.
+      if (mossInst.renderOrder !== -1) {
+        return { ok: false, reason: 'glowmoss renderOrder=' + mossInst.renderOrder + ' (expected -1)', count: moss };
+      }
+      const mossMat = mossInst.material;
+      if (!mossMat || !mossMat.polygonOffset) {
+        return { ok: false, reason: 'glowmoss material missing polygonOffset', count: moss };
+      }
+
+      // (b) Dedicated cave ground pack via envGroup userData.
+      const env = s.envGroup;
+      if (!env || !env.userData) return { ok: false, reason: 'envGroup missing', count: moss };
+      const packs = env.userData.groundPacks;
+      if (!packs) return { ok: false, reason: 'envGroup.userData.groundPacks missing', count: moss };
+      const cavePack = packs.cave;
+      if (!cavePack || !cavePack.diff) {
+        return { ok: false, reason: 'groundPacks.cave.diff missing — fell through to brown_mud', count: moss };
+      }
+      // Sanity: cave pack diff should NOT be the same object reference as
+      // the twilight/forest packs (= the brown_mud fallthrough regression).
+      const t = packs.twilight && packs.twilight.diff;
+      const f = packs.forest   && packs.forest.diff;
+      if (cavePack.diff === t || cavePack.diff === f) {
+        return { ok: false, reason: 'cave pack diff aliased to forest/twilight texture', count: moss };
+      }
+      return {
+        ok: true,
+        reason: 'glowmossCount=' + moss + ', bloom=' + mossBloom
+              + ', cave pack present (diff !=forest/twilight)',
+        count: moss,
+      };
+    });
+    console.log('phase 4 (glowmoss + ground pack): ' + (p4.ok ? 'PASS' : 'FAIL') + ' — ' + p4.reason);
+
     // ── Summary ───────────────────────────────────────────────────────────
     const runtimeSec = ((Date.now() - t0) / 1000).toFixed(1);
 
     console.log('\n========== SMOKE SUMMARY ==========');
-    console.log('phase 1 (skeleton):       ' + (p1Pass ? 'PASS' : 'FAIL'));
-    console.log('phase 2 (stalactites):    ' + (p2.ok  ? 'PASS' : 'FAIL'));
-    console.log('phase 3 (env cave branch):' + (p3.ok  ? 'PASS' : 'FAIL'));
+    console.log('phase 1 (skeleton):              ' + (p1Pass ? 'PASS' : 'FAIL'));
+    console.log('phase 2 (stalactites):           ' + (p2.ok  ? 'PASS' : 'FAIL'));
+    console.log('phase 3 (env cave branch):       ' + (p3.ok  ? 'PASS' : 'FAIL'));
+    console.log('phase 4 (glowmoss + ground pack):' + (p4.ok  ? 'PASS' : 'FAIL'));
     console.log('runtime: ' + runtimeSec + 's');
     console.log('console.errors:  ' + consoleErrors.length);
     for (const e of consoleErrors) console.log('  - ' + e);
     console.log('pageerrors:      ' + pageErrors.length);
     for (const e of pageErrors) console.log('  - ' + e);
 
-    const hardFail = !p1Pass || !p2.ok || !p3.ok || pageErrors.length > 0;
+    const hardFail = !p1Pass || !p2.ok || !p3.ok || !p4.ok || pageErrors.length > 0;
     if (hardFail) {
-      console.error('[smoke-cave] FAIL — phases=' + (p1Pass?1:0) + (p2.ok?1:0) + (p3.ok?1:0)
+      console.error('[smoke-cave] FAIL — phases='
+                    + (p1Pass?1:0) + (p2.ok?1:0) + (p3.ok?1:0) + (p4.ok?1:0)
                     + ' pageerrors=' + pageErrors.length);
       exitCode = 1;
     } else {
-      console.log('[smoke-cave] OK — cohort 2 phases 1+2+3 passed');
-      console.log('[smoke-cave] cohort 3…N will add rooms / boss / reaper / weapons '
+      console.log('[smoke-cave] OK — cohort 3 phases 1+2+3+4 passed');
+      console.log('[smoke-cave] cohort 4…N will add rooms / boss / reaper / weapons '
                   + '— see docs/STAGE_AUTHORING.md §7');
     }
   } catch (e) {

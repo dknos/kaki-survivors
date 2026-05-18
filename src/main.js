@@ -16,7 +16,7 @@ import { buildEnv } from './env.js';
 // hook in applyMetaUpgrades (stage.id === 'cave' arm) + _teardownActiveRun.
 // Layered cohorts (P4A-c2 … P4A-cN) extend cave with rooms, weapons,
 // hazards, neutrals, landmarks, music, textures, achievements.
-import { buildCaveStage, disposeCaveStage } from './stages/cave/caveStage.js';
+import { buildCaveStage, disposeCaveStage, tickCave } from './stages/cave/caveStage.js';
 import { unlockAudio, startMusic, setMusicTier, setVolume, setMasterVolume, setMusicVolume, setSfxVolume, setAmbientVolume, suspendAudio, resumeAudio, sfx, playStageAmbient, _debug as _audioDebug } from './audio.js';
 import { getMeta, shopLevel, selectedCharacter, selectedAvatar, dailyChallengeConfig, equippedRelic, selectedStage, QUEST_TEMPLATES, weeklyMutatorConfig, commitWeeklyRun, setOption, SHOP_TREE, recordAvatarRun } from './meta.js';
 import { applyWeeklyMutator } from './weeklyMutator.js';
@@ -2355,6 +2355,10 @@ function frame(now) {
   if (state.envGroup && typeof state.envGroup.userData.tickAtmosphere === 'function') {
     state.envGroup.userData.tickAtmosphere(realDt, state.hero);
   }
+  // P4A cohort 3 — tick cave-owned per-frame decor (currently glowmoss alpha
+  // pulse). Self-gates on its module-level _group so non-cave runs are a
+  // free no-op per [[feedback_kks_wave_dispatcher_throttle.md]].
+  tickCave(realDt);
 
   applyShake(realDt);
 

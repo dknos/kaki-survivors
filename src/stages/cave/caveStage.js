@@ -37,6 +37,7 @@
 import * as THREE from 'three';
 import { CAVE_PALETTE } from './cavePalette.js';
 import { buildStalactiteCluster, disposeStalactites } from './caveStalactites.js';
+import { buildGlowmossPatches, disposeGlowmoss, tickGlowmoss } from './caveGlowmoss.js';
 
 const STAGE_GROUP_NAME = 'caveStage';
 
@@ -86,9 +87,36 @@ export function buildCaveStage(scene) {
   }
   group.userData.stalactiteCount = stalCount;
 
+  // P4A cohort 3: glowmoss floor patches. 24 slot-3 emissive ground decals
+  // (additive bloom, polygonOffset + renderOrder=-1 so hero+enemies occlude
+  // them) in the 12-26u annulus around hero spawn. Single shared material
+  // ticked by tickGlowmoss → tickCave for a 0.5 Hz alpha pulse.
+  let mossCount = 0;
+  try {
+    const built = buildGlowmossPatches(group);
+    mossCount = built && built.count ? built.count : 0;
+  } catch (e) {
+    console.warn('[caveStage] buildGlowmossPatches failed:', e);
+  }
+  group.userData.glowmossCount = mossCount;
+
   scene.add(group);
   _group = group;
   return group;
+}
+
+/**
+ * Per-frame stage tick for cave-owned decor that needs animation. Called
+ * from main.js#frame after tickAtmosphere. Self-gates on `_group` so a
+ * non-cave run (or pre-build / post-dispose frame) is a free no-op per
+ * `[[feedback_kks_wave_dispatcher_throttle.md]]`. dt is wall-clock seconds.
+ *
+ * Currently drives glowmoss alpha pulse only; future cohorts may chain in
+ * ceiling-drip, sigil-pip, or amber-lantern animations here.
+ */
+export function tickCave(dt) {
+  if (!_group) return;
+  tickGlowmoss(dt);
 }
 
 /**
@@ -103,6 +131,10 @@ export function disposeCaveStage(scene) {
   // Tear down stalactite-owned resources first — disposeStalactites is
   // idempotent and detaches its own group from the parent.
   try { disposeStalactites(); } catch (_) {}
+  // Glowmoss owns its own InstancedMesh geometry + material; disposeGlowmoss
+  // is idempotent and self-detaches from the parent. Drop it before the
+  // group traverse below so the traverse doesn't double-dispose.
+  try { disposeGlowmoss(); } catch (_) {}
   // Detach the stage group itself so traversal doesn't race with re-add.
   if (_group.parent) _group.parent.remove(_group);
   _group.traverse((o) => {

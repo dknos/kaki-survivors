@@ -40,8 +40,8 @@ bloom).
 | Cohort | Asset | Texture / mesh notes |
 |--------|-------|----------------------|
 | P4A-c2 ✅ | Stalactite tip | Tapered 7-sided cylinder body (slot-2, roughness 0.85, flatShading), slot-3 moss-emissive sphere tip (intensity 1.6, bloom-tagged via BLOOM_LAYER). 4-5 per cluster × 6 anchored clusters (4 ring + 2 interior) = 26 InstancedMesh instances. Deterministic mulberry32 seed `0xC0CA0E1`. Shipped 2026-05-18 — `src/stages/cave/caveStalactites.js`. |
-| P4A-c3 | Cave wall (stone) | Tileable rough stone normal map, slot-2 albedo. Reuse env.js#ground packKey hook (TODO P4A-cN: register cave-specific lighting branch in env.js#applyStageTint). |
-| P4A-c4 | Glowmoss patch | Flat circle decal, slot-3 emissive 1.6, additive blend, bloom-tagged. Scatter near floor edges + on stalactite tips. |
+| P4A-c3 ✅ | Cave wall (stone) | Tileable wet-stone diffuse + tangent-space normal + roughness pack (`assets/textures/cave_stone_{diffuse,normal,rough}.png`, 256² ea., procedural mulberry32 via `tools/_gen_cave_stone_texture.mjs`). Diffuse is pure-luminance grayscale (~0.70 mean) so STAGES.cave.groundTint 0x4a4a52 drives the slot-2 hue. Drops the brown_mud fallthrough in `env.js#applyStageTint`; cave-specific `roughness=0.85` (between dry forest 0.95 and pure puddle ~0.4) so wet-stone highlights read. Shipped 2026-05-18. |
+| P4A-c4 ✅ | Glowmoss patch | Flat CircleGeometry decal, slot-3 (CAVE_PALETTE.moss 0x7fffe4), MeshBasicMaterial additive blend, bloom-tagged via BLOOM_LAYER, alpha pulse 0.45→0.65 at 0.5 Hz via `tickGlowmoss`. 24 InstancedMesh patches scattered in the 12-26u annulus around hero spawn (mulberry32 seed `0xC0CA0E2`). Z-order discipline per the 2026-05-17 ground-decal fix: `renderOrder=-1` + `polygonOffset:true factor:-1 units:-1` so hero+enemies+stalactites occlude. Stalactite-tip moss spheres shipped in cohort 2. Glowmoss patch decals shipped cohort 3 (2026-05-18) — `src/stages/cave/caveGlowmoss.js`. |
 | P4A-c5 | Ceiling drip | Single-frame slot-3 streak particle, gravity drop 4u in 0.4s, fades on contact. Spawned by ceiling shader (later cohort). |
 | P4A-cN | Sealed door rune | Slot-4 sigil ring, identical line-weight contract to forest (0.06-0.10 world units, additive, bloom-tagged). |
 
@@ -95,9 +95,11 @@ time.
 
 ## TODOs carried into later cohorts
 - ~~env.js#applyStageTint has no `cave` branch~~ ✅ shipped P4A cohort 2
-  (2026-05-18). Lighting branch landed; `packKey` still falls through
-  to brown_mud diffuse — cohort cN: dedicated cave ground pack (slot-2
-  wet stone diffuse + normal).
+  (2026-05-18). Lighting branch landed.
+- ~~`packKey` still falls through to brown_mud diffuse — cohort cN:
+  dedicated cave ground pack (slot-2 wet stone diffuse + normal).~~
+  ✅ shipped P4A cohort 3 (2026-05-18). Procedural `groundPacks.cave`
+  via `tools/_gen_cave_stone_texture.mjs` (diffuse + normal + rough).
 - ~~env.js#ATMOS_SPECS has no `cave` entry~~ ✅ shipped P4A cohort 2
   — 36 slot-3 glowmoss spores via `_tickCave`. Cohort cN may add a
   second slot-5 amber lantern mote layer (sparser, warmer counterpoint).
