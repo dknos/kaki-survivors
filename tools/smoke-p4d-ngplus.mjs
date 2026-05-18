@@ -131,8 +131,13 @@ async function runSpawnScenario(page, flags, opts = {}) {
     if (typeof window.kkPerfForceOn === 'function') window.kkPerfForceOn();
     window.kkStartRun();
   });
+  // Hotfix #151: wait for kkState.mode === 'run' (set after start() finishes
+  // its async preloadStage). The prior `kkState.run` check passed instantly
+  // because state.run is initialized at boot, racing the new preloadStage
+  // await — tickSpawnDirector would then run with an empty GLTF_CACHE and
+  // no enemies/bosses would spawn.
   await page.waitForFunction(
-    () => !!window.kkState && !!window.kkState.run && !!window.kkState.enemies,
+    () => !!window.kkState && window.kkState.mode === 'run' && !!window.kkState.enemies,
     null,
     { timeout: BOOT_TIMEOUT_MS },
   );
@@ -292,8 +297,10 @@ async function probeHalfPickup(page, flags) {
     if (typeof window.kkPerfForceOn === 'function') window.kkPerfForceOn();
     window.kkStartRun();
   });
+  // Hotfix #151: wait for kkState.mode === 'run' (post-preloadStage). See
+  // companion note in runSpawnScenario above.
   await page.waitForFunction(
-    () => !!window.kkState && !!window.kkState.run && !!window.kkState.enemies,
+    () => !!window.kkState && window.kkState.mode === 'run' && !!window.kkState.enemies,
     null,
     { timeout: BOOT_TIMEOUT_MS },
   );

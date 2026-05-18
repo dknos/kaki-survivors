@@ -365,103 +365,217 @@ export function upgradeMaterials(root, envMapIntensity = 0.55, roughness = null)
   });
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Tiered preload (hotfix #151, 2026-05-18) — splits the previous all-at-boot
+// preloadAll into:
+//   Tier 1 preloadEssential()  — hero/avatar carousel + XP gem + orbital weapon
+//                                meshes. Blocks first paint.
+//   Tier 2 preloadStage(id)    — enemy roster + stage-specific decor kits.
+//                                Awaited at run-start before world spawns.
+//   Tier 3 preloadTown()       — town district kits, lazy on enter
+//        preloadCasino()       — casino building/chip/dice, lazy on enter
+//        preloadHomeDecor()    — H-overlay furniture set, lazy on enter
+//
+// Each tier resolves a Promise.all over its _preload([k, p]) pairs. _preload
+// itself is idempotent across re-calls (the loader callback is one-shot per
+// key, and Tier 2/3 wrappers below skip already-cached entries). Caches are
+// SHARED — Tier 1 loading 'cheese' once is enough for the whole session.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Skip keys already cached or in flight. Used by all tier helpers so repeat
+// calls (e.g. preloadStage('forest') after a return-to-menu) are no-ops.
+function _loadPairs(pairs) {
+  return Promise.all(pairs.map(([k, p]) => {
+    if (GLTF_CACHE[k]) return Promise.resolve(true);
+    return lazyLoadGLTF(k, p);
+  }));
+}
+
 /**
- * Preload hero + enemy roster. Keys here map to config.js ENEMY_TIERS[].glb
- * and HERO.glb. If a key is missing here, the corresponding system silently skips.
+ * Tier 1 — boot path. Hero donor + per-avatar overrides + XP gem + orbital
+ * weapon meshes. Particle textures + fxAwait stay in main.js because they're
+ * synchronous or non-GLB. Anything else is deferred to Tier 2/3.
+ *
+ * Note on the 'hero' donor: tower-castle-plain.glb is ~15 MB and is only
+ * used as the fallback mesh for AVATARS entries with `glb: null` — namely
+ * `kitty` (default), `rune_kitten`, `mire_kitten`, `shroud_kitten`. We keep
+ * it in Tier 1 because the carousel previews those avatars at boot via
+ * `cloneCached('hero')`. A smaller-donor swap would change the default
+ * kitty's silhouette → out of scope for a pure preload-tier refactor.
+ * Tracked in HANDOFF: "hero donor is 15 MB, four avatars depend on it."
  */
-export function preloadAll() {
-  // Per-avatar GLB overrides — preload only those avatars that ship a
-  // dedicated mesh (`avatar.glb` set). The base 'hero' key remains the
-  // canonical donor model for any avatar without an override.
-  // Phase C (Iter 34) fix: preload every avatar GLB. The earlier "only the
-  // selected avatar" path used `kk-survivors-meta-v1.selectedAvatar`, which
-  // Phase B's v2 migration stopped writing — so post-migration users always
-  // booted with `selectedAvatarId='kitty'` and cowboy/sote/etc. never had
-  // their GLB registered, falling back to the tower-castle 'hero' donor (so
-  // cowboykaki looked identical to kittykaki). 11 small GLBs is a tolerable
-  // upfront cost vs. wiring v2 reads + carousel lazy-load here.
+export function preloadEssential() {
   const avatarOverrides = (AVATARS || [])
     .filter(a => a && a.glb)
     .map(a => [`hero_${a.id}`, BASE + a.glb]);
-  const list = [
-    ['hero',     BASE + HERO.glb],
+  const pairs = [
+    ['hero', BASE + HERO.glb],
     ...avatarOverrides,
-    // Animated Quaternius "Ultimate Monsters" (CC0). Keep `slime` low-poly for variety.
-    ['zombie',   BASE + 'Mushnub.glb'],          // small basic enemy
-    ['goblin',   BASE + 'Cactoro.glb'],          // cactus goblin
-    ['skeleton', BASE + 'Goleling.glb'],         // stone golem-style
-    ['orc',      BASE + 'Orc-New.glb'],          // tusked orc
-    ['demon',    BASE + 'Demon-New.glb'],        // red horned demon
-    ['robot',    BASE + 'Goleling-Evolved.glb'], // tougher golem
-    ['mech',     BASE + 'Yeti.glb'],             // hulking brute
-    ['xeno',     BASE + 'Blue-Demon.glb'],       // fast blue demon
-    ['slime',    BASE + 'Pink-Slime.glb'],       // keep slime
-    ['giant',    BASE + 'Mushroom-King.glb'],    // elite mushroom king
-    ['dragon',   BASE + 'Dragon-New.glb'],       // dragon (elite)
-    // Extras for new tiers later
-    ['wizard',   BASE + 'Wizard.glb'],
-    ['ghost',    BASE + 'Ghost.glb'],
-    ['spider',   BASE + 'Spider.glb'],
-    ['wolf',     BASE + 'Wolf.glb'],
-    ['dragon_evo', BASE + 'Dragon-Evolved.glb'],
-    // Forest bugs (CC-BY Poly by Google + CC0 Quaternius wasp)
-    ['ant',         BASE + 'Ant.glb'],
-    ['beetle',      BASE + 'Beetle.glb'],
-    ['ladybug',     BASE + 'Ladybug.glb'],
-    ['grasshopper', BASE + 'Grasshopper.glb'],
-    ['cockroach',   BASE + 'Cockroach.glb'],
-    ['mantis',      BASE + 'Mantis.glb'],
-    ['wasp',        BASE + 'Wasp.glb'],
-    ['bee',         BASE + 'Bee.glb'],
-    ['butterfly',   BASE + 'Butterfly.glb'],
-    ['caterpillar', BASE + 'Caterpillar.glb'],
-    // Env props (unchanged)
-    ['rock',     BASE + 'Rock.glb'],
-    ['tree',     BASE + 'Tree.glb'],
-    ['bush',     BASE + 'Bush.glb'],
-    ['dead_tree',BASE + 'Dead Tree.glb'],
-    ['chest',    BASE + 'chest.glb'],
-    ['chest_open', BASE + 'chest_open.glb'],
-    // Cheesy Burgers weapon meshes — from the kitty-kaki-sote food pack.
-    // 'burger' = base orbital, 'burger_evo' = Toxic Halo (double cheeseburger).
+    // XP gem mesh — initXP() at boot reads GLTF_CACHE.cheese; cylinder
+    // fallback exists but the cheese block reads as the canonical pickup.
+    ['cheese', 'assets/food/cheese.glb'],
+    // Orbital weapon meshes — acquired at boot via acquireWeapon('orbitals').
+    // Primitives fallback exists but the GLB is the polished art.
     ['burger',     'assets/food/Cheeseburger.glb'],
     ['burger_evo', 'assets/food/Double Cheeseburger.glb'],
-    // XP gem mesh (iter 33b) — Quaternius cheese block, CC0 from Poly Pizza.
-    ['cheese',     'assets/food/cheese.glb'],
-    // Casino visuals (iter 33f) — CC-BY 3.0 from Poly Pizza (Poly by Google).
-    // casino_building: 1930s neon-sign casino used to replace the procedural
-    // Seedy Tent. dice + poker_chip: scatter bling around the entrance.
+  ];
+  return _loadPairs(pairs);
+}
+
+// Shared mob roster — every stage's spawn director pulls from ENEMY_TIERS,
+// so the full enemy set has to be loaded before the run starts regardless
+// of stage. (spawnDirector.js filters only on tier.minD vs difficulty D —
+// no stage-keyed enemy filter exists.)
+const _CORE_MOB_PAIRS = [
+  ['zombie',   BASE + 'Mushnub.glb'],
+  ['goblin',   BASE + 'Cactoro.glb'],
+  ['skeleton', BASE + 'Goleling.glb'],
+  ['orc',      BASE + 'Orc-New.glb'],
+  ['demon',    BASE + 'Demon-New.glb'],
+  ['robot',    BASE + 'Goleling-Evolved.glb'],
+  ['mech',     BASE + 'Yeti.glb'],
+  ['xeno',     BASE + 'Blue-Demon.glb'],
+  ['slime',    BASE + 'Pink-Slime.glb'],
+  ['giant',    BASE + 'Mushroom-King.glb'],
+  ['dragon',   BASE + 'Dragon-New.glb'],
+  ['wizard',   BASE + 'Wizard.glb'],
+  ['ghost',    BASE + 'Ghost.glb'],
+  ['spider',   BASE + 'Spider.glb'],
+  ['wolf',     BASE + 'Wolf.glb'],
+  ['dragon_evo', BASE + 'Dragon-Evolved.glb'],
+];
+
+// Forest bugs — only spawn on forest stage per the wave-spawn semantics in
+// spawnDirector.js (D-gated, but bug tiers have low minD so they appear
+// only in the early-difficulty pool which lines up with forest gameplay).
+const _FOREST_BUG_PAIRS = [
+  ['ant',         BASE + 'Ant.glb'],
+  ['beetle',      BASE + 'Beetle.glb'],
+  ['ladybug',     BASE + 'Ladybug.glb'],
+  ['grasshopper', BASE + 'Grasshopper.glb'],
+  ['cockroach',   BASE + 'Cockroach.glb'],
+  ['mantis',      BASE + 'Mantis.glb'],
+  ['wasp',        BASE + 'Wasp.glb'],
+  ['bee',         BASE + 'Bee.glb'],
+  ['butterfly',   BASE + 'Butterfly.glb'],
+  ['caterpillar', BASE + 'Caterpillar.glb'],
+];
+
+// Env props — chests + scatter rocks/trees/bushes. Used by every stage's
+// arenaDecor + the in-run chest spawner. Loaded with every stage.
+const _ENV_PROP_PAIRS = [
+  ['rock',     BASE + 'Rock.glb'],
+  ['tree',     BASE + 'Tree.glb'],
+  ['bush',     BASE + 'Bush.glb'],
+  ['dead_tree',BASE + 'Dead Tree.glb'],
+  ['chest',    BASE + 'chest.glb'],
+  ['chest_open', BASE + 'chest_open.glb'],
+];
+
+// Dungeon kits — Kay Lousberg crypts/pillars/bones. Used by:
+//   - arenaDecor._buildVoidDecor for the void stage's pillar/bone ring
+//   - catacomb.js for the catacomb sub-mode chamber (entered via E on
+//     overworld stairs). buildCatacomb runs at boot for the entrance, but
+//     the chamber interior gracefully renders sparse without these kits.
+// Loaded for void stage; sparse-chamber trade-off documented.
+const _DUNGEON_KIT_PAIRS = [
+  ['kit_arch',         'assets/kits/dungeon/arch.glb'],
+  ['kit_pillar',       'assets/kits/dungeon/pillar.glb'],
+  ['kit_pillar2',      'assets/kits/dungeon/pillar_alt.glb'],
+  ['kit_pillar_broken','assets/kits/dungeon/pillar_broken.glb'],
+  ['kit_coffin',       'assets/kits/dungeon/coffin.glb'],
+  ['kit_crypt',        'assets/kits/dungeon/crypt.glb'],
+  ['kit_bone1',        'assets/kits/dungeon/bone1.glb'],
+  ['kit_bone2',        'assets/kits/dungeon/bone2.glb'],
+  ['kit_bone3',        'assets/kits/dungeon/bone3.glb'],
+  // Torches — used by catacomb.js chamber. Also referenced by twilight
+  // ruins decor; loaded with void since catacomb is the heavier consumer.
+  ['kit_torch_wall',   'assets/kits/torches/torch_wall.glb'],
+  ['kit_torch_stand',  'assets/kits/torches/torch_stand.glb'],
+];
+
+// Twilight ruins kits — gravestones. Loaded only on twilight stage.
+const _TWILIGHT_KIT_PAIRS = [
+  ['kit_grave',     'assets/kits/ruins/damaged_grave.glb'],
+  ['kit_gravestone','assets/kits/ruins/gravestone.glb'],
+  ['kit_gravestone2','assets/kits/ruins/gravestone_alt.glb'],
+];
+
+/**
+ * Tier 2 — run-start. Loads enemy roster + props + stage-specific decor
+ * before the world spawns. Idempotent across re-calls (already-cached
+ * entries are skipped by _loadPairs). main.js awaits this before
+ * rebuildHero / spawnArenaProps and re-runs prewarmPools after.
+ *
+ * Stage mapping (no explicit per-stage enemy filter exists in
+ * spawnDirector.js — every tier with `minD <= D` is eligible, so every
+ * stage gets the full core mob roster):
+ *   - forest:   core mobs + forest bugs + env props
+ *   - twilight: core mobs + env props + ruins kits
+ *   - cinder:   core mobs + env props
+ *   - void:     core mobs + env props + dungeon kits
+ *   - any other id: defensive — load core mobs + env props
+ */
+export function preloadStage(stageId) {
+  const pairs = [..._CORE_MOB_PAIRS, ..._ENV_PROP_PAIRS];
+  switch (stageId) {
+    case 'forest':
+      pairs.push(..._FOREST_BUG_PAIRS);
+      break;
+    case 'twilight':
+      pairs.push(..._TWILIGHT_KIT_PAIRS);
+      break;
+    case 'cinder':
+      // no stage-specific kits
+      break;
+    case 'void':
+      pairs.push(..._DUNGEON_KIT_PAIRS);
+      break;
+    default:
+      // unknown stage id — load conservative baseline only
+      break;
+  }
+  return _loadPairs(pairs);
+}
+
+/**
+ * Tier 3 — town district. Six Quaternius house/keep/inn kits used by
+ * town.js#buildTown. main.js's kkEnterTown wrapper awaits this before
+ * buildTown(scene) + enterTown(). Idempotent.
+ */
+export function preloadTown() {
+  return _loadPairs([
+    ['kit_house',    'assets/kits/town/fantasy_house.glb'],
+    ['kit_house2',   'assets/kits/town/town_house.glb'],
+    ['kit_inn',      'assets/kits/town/fantasy_inn.glb'],
+    ['kit_keep',     'assets/kits/town/tower_house.glb'],
+    ['kit_gate',     'assets/kits/town/castle_gate.glb'],
+    ['kit_barracks', 'assets/kits/town/fantasy_barracks.glb'],
+  ]);
+}
+
+/**
+ * Tier 3 — casino interior. Building + chip + dice GLBs used by both
+ * town.js (Seedy Tent procedural prop) and casinoInterior.js (chip
+ * scatter / dice prop). main.js wraps the casino interactable handler
+ * to await this before enterCasinoInterior. Idempotent.
+ */
+export function preloadCasino() {
+  return _loadPairs([
     ['casino_building', 'assets/casino/casino_building.glb'],
     ['casino_chip',     'assets/casino/poker_chip.glb'],
     ['casino_dice',     'assets/casino/dice.glb'],
-    // ── Iter 14 kits — CC0 from Poly Pizza CDN. See assets/ASSETS_MANIFEST.md.
-    // Forest-district buildings (Quaternius, CC0).
-    ['kit_house',     'assets/kits/town/fantasy_house.glb'],
-    ['kit_house2',    'assets/kits/town/town_house.glb'],
-    ['kit_inn',       'assets/kits/town/fantasy_inn.glb'],
-    ['kit_keep',      'assets/kits/town/tower_house.glb'],
-    ['kit_gate',      'assets/kits/town/castle_gate.glb'],
-    ['kit_barracks',  'assets/kits/town/fantasy_barracks.glb'],
-    // Catacomb dungeon (Kay Lousberg, CC0).
-    ['kit_arch',      'assets/kits/dungeon/arch.glb'],
-    ['kit_pillar',    'assets/kits/dungeon/pillar.glb'],
-    ['kit_pillar2',   'assets/kits/dungeon/pillar_alt.glb'],
-    ['kit_pillar_broken','assets/kits/dungeon/pillar_broken.glb'],
-    ['kit_coffin',    'assets/kits/dungeon/coffin.glb'],
-    ['kit_crypt',     'assets/kits/dungeon/crypt.glb'],
-    ['kit_bone1',     'assets/kits/dungeon/bone1.glb'],
-    ['kit_bone2',     'assets/kits/dungeon/bone2.glb'],
-    ['kit_bone3',     'assets/kits/dungeon/bone3.glb'],
-    // Twilight ruins (Kay Lousberg, CC0).
-    ['kit_grave',     'assets/kits/ruins/damaged_grave.glb'],
-    ['kit_gravestone','assets/kits/ruins/gravestone.glb'],
-    ['kit_gravestone2','assets/kits/ruins/gravestone_alt.glb'],
-    // Torches (Quaternius, CC0).
-    ['kit_torch_wall','assets/kits/torches/torch_wall.glb'],
-    ['kit_torch_stand','assets/kits/torches/torch_stand.glb'],
-    // ── Iter 22A cozy home furniture (Quaternius, CC0). Used by
-    // src/homeDecor.js for the H-key Decorate overlay. Keys mirror the
-    // HOME_CATALOG entry ids.
+  ]);
+}
+
+/**
+ * Tier 3 — home decor catalog. 16 Quaternius furniture kits used by
+ * homeDecor.js for the H-overlay Decorate mode. main.js's interior-enter
+ * handler kicks this off in the background so the assets are ready by
+ * the time the player presses H inside the interior. Idempotent.
+ */
+export function preloadHomeDecor() {
+  return _loadPairs([
     ['home_rug',           'assets/kits/home/rug.glb'],
     ['home_plant',         'assets/kits/home/plant.glb'],
     ['home_lamp',          'assets/kits/home/lamp.glb'],
@@ -478,6 +592,15 @@ export function preloadAll() {
     ['home_sword_mount',   'assets/kits/home/sword_mount.glb'],
     ['home_shield_mount',  'assets/kits/home/shield_mount.glb'],
     ['home_skull_mount',   'assets/kits/home/skull_mount.glb'],
-  ];
-  return Promise.all(list.map(([k, p]) => _preload(k, p)));
+  ]);
+}
+
+/**
+ * @deprecated Use preloadEssential() at boot and preloadStage()/preloadTown()
+ * /preloadCasino()/preloadHomeDecor() at the appropriate entry points.
+ * Kept as a thin wrapper for backward-compat with any external callers
+ * (none in-tree at hotfix #151 time).
+ */
+export function preloadAll() {
+  return preloadEssential();
 }

@@ -5,7 +5,10 @@
 import * as THREE from 'three';
 import { state, resetState } from './state.js';
 import { WORLD, SPAWN, AVATARS, CHARACTERS, STAGES, archetypeForAvatar } from './config.js';
-import { preloadAll, lazyLoadGLTF, disposeCachedGLTF, BASE, GLTF_CACHE } from './assets.js';
+import {
+  preloadAll, preloadEssential, preloadStage, preloadTown, preloadCasino,
+  preloadHomeDecor, lazyLoadGLTF, disposeCachedGLTF, BASE, GLTF_CACHE,
+} from './assets.js';
 import { createComposer, resizeComposer, BLOOM_LAYER, applyAccessibilityOptions } from './postfx.js';
 import { buildEnv } from './env.js';
 import { unlockAudio, startMusic, setMusicTier, setVolume, setMasterVolume, setMusicVolume, setSfxVolume, setAmbientVolume, suspendAudio, resumeAudio, sfx, playStageAmbient, _debug as _audioDebug } from './audio.js';
@@ -303,11 +306,16 @@ async function boot() {
   _bootLoader.textContent = 'Loading…';
   document.body.appendChild(_bootLoader);
   initParticleTextures();   // synchronous canvas → texture, no network
-  await preloadAll();
+  // Hotfix #151 (perf): boot loads ONLY essential assets (hero donor + avatar
+  // overrides + cheese XP gem + orbital burger). Stage enemy roster, town
+  // kits, casino, dungeon kits, and home decor all defer to their respective
+  // entry points (see assets.js preloadStage / preloadTown / preloadCasino /
+  // preloadHomeDecor). Cuts menu-boot RAM from ~2.4 GB to <600 MB.
+  await preloadEssential();
   // iter 33w — load the hand-painted FX manifest before initFX so synchronous
   // fxTex('ring_arcane') calls during init hit the WebP path, not the canvas
   // fallback. Texture image data still arrives async; the manifest fetch is
-  // small (~1 KB) and happens in parallel with preloadAll above.
+  // small (~1 KB) and happens in parallel with preloadEssential above.
   try {
     const { fxAwait } = await import('./fxTextures.js');
     await fxAwait();
@@ -316,9 +324,13 @@ async function boot() {
   }
 
   state.envGroup = buildEnv(scene, renderer);
-  buildTown(scene);
+  // Hotfix #151: defer buildTown + buildCasinoInterior to their enter
+  // handlers below (kkEnterTown / setInteractionHandler('casino', ...)) so
+  // kit_* + casino_* GLBs don't have to load at boot. buildInterior is kept
+  // (procedural primitives, no kit deps). buildCatacomb is kept because it
+  // also adds the always-visible overworld entrance stairs to the run scene
+  // — the chamber decor degrades to primitives without dungeon kits.
   buildInterior(scene);
-  buildCasinoInterior(scene);
   buildCatacomb(scene);
 
   initInput();
@@ -407,7 +419,11 @@ async function boot() {
     }
   })();
 
-  prewarmPools();   // create pooled meshes off-screen (hides first-horde stall)
+  // Hotfix #151: prewarmPools at boot is a no-op now that enemy GLBs defer
+  // to preloadStage. The real prewarm happens inside start() after the
+  // stage's mob roster lands in GLTF_CACHE. Skipping the no-op call here
+  // avoids ~20 "[enemies] prewarm: GLTF X not loaded" console warnings on
+  // first paint. prewarmPools is idempotent — calling it later catches up.
 
   resetState();
   resetZoom();      // every run starts fully zoomed in; powerup unlocks notches
@@ -499,12 +515,34 @@ async function boot() {
     // were wiped (kkReturnToMenu path clears them via resetState but skips
     // _primeRunStart). applyMetaUpgrades re-reads selectedAvatar so the correct
     // sig-weapon (e.g. sig_sote_warhowl) is always given regardless of what was
-    // set at boot time.
+    // set at boot time. It ALSO sets state.run.stage from the selected meta
+    // option, which we need below to drive preloadStage.
     if (state.weapons.length === 0) {
       applyMetaUpgrades();
       acquireWeapon(state.run.starterWeapon || 'orbitals');
       for (let i = 0; i < (state.run.cellarLv || 0); i++) acquireWeapon(state.run.starterWeapon || 'orbitals');
     }
+    // Hotfix #151: load stage-specific enemy roster + decor kits before the
+    // world spawns. preloadStage is idempotent (skips already-cached entries)
+    // so subsequent runs on the same stage are no-ops. Show a "Loading stage…"
+    // overlay during the fetch — mirrors the boot-loader pattern. After the
+    // load, re-run prewarmPools so the spawner has hot pools for the new tiers.
+    // Read the stage from meta directly, not state.run.stage — menuV2's stage
+    // selector only mutates meta and doesn't re-run applyMetaUpgrades, so
+    // state.run.stage can be stale across stage switches.
+    const _selStage = selectedStage(STAGES);
+    const _stageId = (_selStage && _selStage.id) || 'forest';
+    let _stageLoader = null;
+    try {
+      _stageLoader = document.createElement('div');
+      _stageLoader.id = 'kk-stage-loader';
+      _stageLoader.style.cssText = 'position:fixed;inset:0;background:#000;display:flex;align-items:center;justify-content:center;z-index:9999;font-family:"Cinzel",serif;font-size:14px;letter-spacing:0.3em;color:rgba(236,230,213,0.55);text-transform:uppercase;pointer-events:auto;';
+      _stageLoader.textContent = 'Loading stage…';
+      document.body.appendChild(_stageLoader);
+    } catch (_) {}
+    try { await preloadStage(_stageId); } catch (e) { console.warn('[start.preloadStage]', e); }
+    try { prewarmPools(); } catch (e) { console.warn('[start.prewarmPools]', e); }
+    try { _stageLoader?.remove(); } catch (_) {}
     // Set run state inside try so a failure resets the guard flags and lets
     // the player retry (otherwise state.started+mode='run' stays set with the
     // menu still visible and every subsequent Embark click returns early).
@@ -535,8 +573,25 @@ async function boot() {
     // Tutorial disabled by user request — how-to-play.html covers new players.
   };
   setGateHandler(start);
-  setInteractionHandler('house', () => enterInterior());
-  setInteriorHandler('exit', () => { exitInterior(); enterTown(); });
+  // Hotfix #151 — gated town entry. Loads the 6 town district kits before
+  // building + entering the town. buildTown is idempotent (early-returns on
+  // repeat calls), preloadTown is idempotent (already-cached entries skipped).
+  // First entry ~0.5-1s on cold cache; subsequent entries are instant.
+  const _enterTownGated = async () => {
+    try { await preloadTown(); } catch (e) { console.warn('[town.preload]', e); }
+    try { buildTown(scene); } catch (e) { console.warn('[town.build]', e); }
+    enterTown();
+  };
+  setInteractionHandler('house', () => {
+    // Lazy-preload home decor kits in the background when the player heads
+    // into the interior — the H-overlay opens those kits, and a background
+    // fetch here means they're warm by the time the player presses H.
+    // Fire-and-forget: openDecorateMode's cloneCached calls fall back to
+    // null (skipped item) if a key isn't ready yet.
+    try { preloadHomeDecor(); } catch (_) {}
+    enterInterior();
+  });
+  setInteriorHandler('exit', async () => { exitInterior(); await _enterTownGated(); });
   setInteriorHandler('house', () => showHouse());
   setInteriorHandler('sketch', () => showSketchbook());
   setInteriorHandler('yarn',   () => showYarnDart());
@@ -545,23 +600,33 @@ async function boot() {
   // Iter 33g — walkable casino interior. Town casino interactable now enters
   // a real room (sibling of the house) instead of opening the dashboard modal
   // directly. Stations inside route to the same modal sections.
-  setInteractionHandler('casino', () => {
+  // Hotfix #151: preload the 3 casino GLBs + build the interior on first
+  // entry (was buildCasinoInterior at boot). Idempotent.
+  setInteractionHandler('casino', async () => {
     // Settle any in-flight Boss Rush wager before entering (legacy code path).
     import('./casino.js')
       .then(({ settlePendingWager }) => { try { settlePendingWager(); } catch (_) {} })
       .catch(() => {});
+    try { await preloadCasino(); } catch (e) { console.warn('[casino.preload]', e); }
+    try { buildCasinoInterior(scene); } catch (e) { console.warn('[casino.build]', e); }
     enterCasinoInterior();
   });
-  setCasinoInteriorHandler('exit',   () => { exitCasinoInterior(); enterTown(); });
+  setCasinoInteriorHandler('exit',   async () => { exitCasinoInterior(); await _enterTownGated(); });
   setCasinoInteriorHandler('slots',  () => showCasinoSlots());
   setCasinoInteriorHandler('parlay', () => showCasinoParlay());
   setCasinoInteriorHandler('buffs',  () => showCasinoMenu('buffs'));
   setCasinoInteriorHandler('house',  () => showCasinoMenu('house'));
+  // Debug shim — smoke tests + console can preload stage assets without
+  // starting a run. Mirrors the lazyLoadGLTF surface from iter 33y.
+  window.kkPreloadStage = preloadStage;
+  window.kkPreloadTown = preloadTown;
+  window.kkPreloadCasino = preloadCasino;
+  window.kkPreloadHomeDecor = preloadHomeDecor;
   window.kkStartRun = start;
-  window.kkEnterTown = () => {
+  window.kkEnterTown = async () => {
     hideStartScreen();
     hideMenuV2();
-    enterTown();
+    await _enterTownGated();
     state.started = true;   // bypass start-screen idle render path
   };
   // Click/Space only triggers a run when on the start screen (menu mode).
@@ -573,8 +638,13 @@ async function boot() {
     if (e.code === 'Escape') {
       if (isQuestBoardOpen()) hideQuestBoard();
       else if (isHouseOpen()) hideHouse();
-      else if (state.mode === 'interior') { exitInterior(); enterTown(); }
-      else if (state.mode === 'casino_interior') { exitCasinoInterior(); enterTown(); }
+      // Hotfix #151: these transitions hit _enterTownGated which preloads
+      // town kits. By the time the player presses Escape they've already
+      // entered the town once (interior/casino are inside town), so the
+      // preload is a no-op fast-path. Fire-and-forget — the Esc handler
+      // doesn't need to await; town pops in within a frame on cached path.
+      else if (state.mode === 'interior') { exitInterior(); _enterTownGated(); }
+      else if (state.mode === 'casino_interior') { exitCasinoInterior(); _enterTownGated(); }
       else if (state.mode === 'catacomb') { exitCatacomb(); }
       else if (isShopOpen()) hideShop();
       else if (isGrimoireOpen()) hideGrimoire();
@@ -637,10 +707,11 @@ async function boot() {
   window.kkRestart = restartRun;
   // After death, take the player to town instead of restarting the run.
   // Same state cleanup, then enter the hub for shop/house/statues access.
-  window.kkReturnToTown = () => {
+  window.kkReturnToTown = async () => {
     _teardownActiveRun();
     _primeRunStart();        // hero is alive + statted up, ready for next gate-press
-    enterTown();              // sets state.mode='town', positions hero at gate
+    await _enterTownGated();  // Hotfix #151: preload town kits if first entry,
+                              // then buildTown + enterTown. No-op on cached path.
     state._deathShown = false;
     state.started = true;     // bypass start-screen idle render path
     // Show an arrival toast surfacing what the run earned.
