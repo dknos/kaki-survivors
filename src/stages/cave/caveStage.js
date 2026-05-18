@@ -1,37 +1,42 @@
 /**
- * Cave stage builder — minimum-viable skeleton (P4A cohort 1, 2026-05-18).
+ * Cave stage builder — P4A cohort 2, 2026-05-18.
  *
  * The cave stage rides on top of the shared env (src/env.js#buildEnv)
- * exactly like forest/twilight/cinder/void do — applyStageTint already
- * recolors ground + fog from the STAGES entry (groundTint / fogColor),
- * and cave's slot-2 stone (#4a4a52) + slot-1 shadow fog (#1a1820)
- * pipe through without changes to env.js (which is HARD-out-of-scope
- * for cohort 1).
+ * exactly like forest/twilight/cinder/void do — applyStageTint recolors
+ * ground + fog from the STAGES entry (groundTint / fogColor) and now
+ * (cohort 2) drives the cave lighting + atmospheric particle cluster.
  *
- * What this module DOES (cohort 1):
- *   - Mounts a single scene-named group `caveStage` so the smoke can
- *     prove the wire-up ran.
- *   - Adds a placeholder BoxGeometry "stalactite" tinted CAVE_PALETTE.stone.
- *   - Adds a thin slot-2 floor accent plane slightly above y=0 so it does
- *     NOT z-fight with env.js#ground (which is the canonical floor).
+ * What this module DOES (cohort 2):
+ *   - Mounts a single scene-named group `caveStage`.
+ *   - Adds a slot-2 floor accent plane just above y=0 (no z-fight with env
+ *     ground).
+ *   - Calls buildStalactiteCluster (src/stages/cave/caveStalactites.js) to
+ *     mount 24-30 InstancedMesh stalactites in 6 author-anchored clusters
+ *     (4 ring + 2 interior), each with a slot-3 moss-emissive tip patch.
+ *   - Records `userData.stalactiteCount` on the group so smoke phase 2 can
+ *     assert ≥6 instances landed.
  *   - Exports buildCaveStage(scene) + disposeCaveStage(scene) — idempotent,
- *     safe to call across stage swaps / run-end.
+ *     safe to call across stage swaps / run-end. Dispose tears down both
+ *     InstancedMeshes via disposeStalactites().
  *
- * What this module does NOT do (cohort 1):
- *   - No rooms, neutrals, hazards, weapons, chests, coffins, achievements,
- *     music phases, ceiling shader, ground normal, or stone wall textures.
- *     Those land in P4A cohorts 2 through N — see docs/P4_BACKLOG.md.
- *   - Does NOT register cave atmospheric particles in env.js#ATMOS_SPECS
- *     (env.js is out-of-scope for cohort 1; TODO carried in
- *     docs/CAVE_VISUAL_STYLE.md).
+ * Cohort 1 deltas (now removed):
+ *   - BoxGeometry placeholder stalactite — replaced by real cluster.
+ *   - applyStageTint cave arm TODO — cohort 2 wires it in src/env.js.
+ *   - ATMOS_SPECS cave entry TODO — cohort 2 wires it in src/env.js.
+ *
+ * What this module STILL does NOT do (deferred to P4A cohorts c3…cN):
+ *   - Rooms, neutrals, hazards, weapons, chests, coffins, achievements.
+ *   - Music phases, ceiling shader, ground normal, stone wall textures.
+ *   - See docs/P4_BACKLOG.md for the cohort cadence.
  *
  * Constraints honored:
  *   - Static import per [[feedback_kks_export_origin_module_break.md]].
- *   - 5-color palette only — slot-2 stone for placeholder geometry.
+ *   - 5-color palette only (slot 2 + slot 3 used here).
  *   - Idempotent dispose (early-return if not mounted).
  */
 import * as THREE from 'three';
 import { CAVE_PALETTE } from './cavePalette.js';
+import { buildStalactiteCluster, disposeStalactites } from './caveStalactites.js';
 
 const STAGE_GROUP_NAME = 'caveStage';
 
@@ -54,9 +59,8 @@ export function buildCaveStage(scene) {
 
   // Floor accent plane — slightly above env.js#ground (y=0) to avoid
   // z-fight. Pure slot-2 stone; rotates flat with -PI/2 like env.js does.
-  // Size 80x80 per the cohort spec; the shared env ground extends much
-  // further so this only reads as a cave-floor "tint patch" in the
-  // immediate play area.
+  // Size 80x80; the shared env ground extends much further so this only
+  // reads as a cave-floor "tint patch" in the immediate play area.
   const floorMat = new THREE.MeshStandardMaterial({
     color: CAVE_PALETTE.stone,
     roughness: 0.95,
@@ -69,21 +73,18 @@ export function buildCaveStage(scene) {
   floor.name = 'caveStage_floorAccent';
   group.add(floor);
 
-  // TODO P4A-c2: replace with stalactite landmark (matched-density
-  // clusters; per-instance flat-shaded BufferGeometry; tip glow on
-  // CAVE_PALETTE.moss like the FOREST_VISUAL_STYLE.md spider-web spec).
-  // For cohort 1 a single Box-as-stalactite proves the decor builder ran
-  // and gives the smoke a visible cave-tinted prop.
-  const stalMat = new THREE.MeshStandardMaterial({
-    color: CAVE_PALETTE.stone,
-    roughness: 0.85,
-    metalness: 0.10,
-    flatShading: true,
-  });
-  const stalactite = new THREE.Mesh(new THREE.BoxGeometry(2, 6, 2), stalMat);
-  stalactite.position.set(8, 3, -6);
-  stalactite.name = 'caveStage_stalactitePlaceholder';
-  group.add(stalactite);
+  // P4A cohort 2: stalactite landmark cluster. 6 author-anchored clusters
+  // (4 ring + 2 interior), 4-5 stalactites each = 24-30 InstancedMesh
+  // instances total. Tip glow patches are a second InstancedMesh tagged
+  // for bloom (slot-3 moss emissive).
+  let stalCount = 0;
+  try {
+    const built = buildStalactiteCluster(group);
+    stalCount = built && built.count ? built.count : 0;
+  } catch (e) {
+    console.warn('[caveStage] buildStalactiteCluster failed:', e);
+  }
+  group.userData.stalactiteCount = stalCount;
 
   scene.add(group);
   _group = group;
@@ -93,11 +94,16 @@ export function buildCaveStage(scene) {
 /**
  * Tear down the cave-stage decor group, disposing geometry + materials so
  * GPU memory doesn't leak across stage swaps / run-end. Idempotent — safe
- * to call when nothing is mounted (e.g. on a forest run).
+ * to call when nothing is mounted (e.g. on a forest run). Disposes the
+ * stalactite cluster's InstancedMeshes first (they own their own geo+mat
+ * lifecycles), then walks any remaining group children.
  */
 export function disposeCaveStage(scene) {
   if (!_group) return false;
-  // Detach first so traversal doesn't race with re-add elsewhere.
+  // Tear down stalactite-owned resources first — disposeStalactites is
+  // idempotent and detaches its own group from the parent.
+  try { disposeStalactites(); } catch (_) {}
+  // Detach the stage group itself so traversal doesn't race with re-add.
   if (_group.parent) _group.parent.remove(_group);
   _group.traverse((o) => {
     if (o.geometry && typeof o.geometry.dispose === 'function') {

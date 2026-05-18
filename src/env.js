@@ -71,6 +71,25 @@ const ATMOS_SPECS = {
     texKey: 'twinkle',
     blending: THREE.AdditiveBlending,
   },
+  // P4A cohort 2 — Stonewright Caverns. Slow upward glowmoss spores,
+  // SPARSE (cave is meant to feel like dripping silence per
+  // docs/CAVE_VISUAL_STYLE.md "deep, wet grottos"). 30-40 particle cap
+  // per the cohort 2 brief — well under forest/cinder density. Color is
+  // CAVE_PALETTE.moss (#7fffe4); glowWhite texKey tints cleanly via
+  // uColor without authoring a dedicated particle bitmap.
+  cave: {
+    count: 36,
+    radius: 50,
+    yMin: 0.2,
+    yMax: 10,
+    color: 0x7fffe4,     // CAVE_PALETTE.moss (slot 3)
+    baseSize: 2.4,
+    sizeJitter: 0.9,
+    baseAlpha: 0.50,
+    alphaJitter: 0.25,
+    texKey: 'glowWhite',
+    blending: THREE.AdditiveBlending,
+  },
 };
 
 const _ATMOS_VS = /* glsl */ `
@@ -279,11 +298,44 @@ function _tickVoid(points, dt, hx, hz) {
   points.geometry.attributes.aAlpha.needsUpdate = true;
 }
 
+// P4A cohort 2 — cave glowmoss spore drift. Slow upward + slight horizontal
+// sway. Smaller drift constants than forest (cave is sparser, slower-paced).
+// Same wrap-disc pattern: when a point clears yMax it respawns at yMin, when
+// it leaves the horizontal disc it mirrors to the opposite edge.
+function _tickCave(points, dt, hx, hz) {
+  const spec = points.userData._atmosSpec;
+  const pos  = points.geometry.attributes.position.array;
+  const seeds = points.userData._seeds;
+  points.userData._tickAcc += dt;
+  const t = points.userData._tickAcc;
+  const R = spec.radius, R2 = R * R;
+  const N = spec.count;
+  for (let i = 0; i < N; i++) {
+    const ix = i * 3;
+    // Slow rise (0.35 u/s ± 0.08 sin wave) — much slower than forest's 0.6+0.15.
+    pos[ix + 1] += dt * (0.35 + Math.sin(t * 0.35 + seeds[i]) * 0.08);
+    // Slight horizontal sway (0.10 u/s amplitude) — dripping cave is calm.
+    pos[ix + 0] += dt * Math.sin(t * 0.45 + seeds[i] * 0.17) * 0.10;
+    pos[ix + 2] += dt * Math.cos(t * 0.40 + seeds[i] * 0.21) * 0.10;
+    if (pos[ix + 1] > spec.yMax) {
+      pos[ix + 1] = spec.yMin + Math.random() * 0.8;
+    }
+    const dx = pos[ix + 0] - hx;
+    const dz = pos[ix + 2] - hz;
+    if (dx * dx + dz * dz > R2) {
+      pos[ix + 0] = hx - dx;
+      pos[ix + 2] = hz - dz;
+    }
+  }
+  points.geometry.attributes.position.needsUpdate = true;
+}
+
 const _TICKERS = {
   forest:   _tickForest,
   twilight: _tickTwilight,
   cinder:   _tickCinder,
   void:     _tickVoid,
+  cave:     _tickCave,
 };
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -565,6 +617,7 @@ export function buildEnv(scene, renderer) {
     const isTwilight = id === 'twilight';
     const isCinder   = id === 'cinder';
     const isVoid     = id === 'void';
+    const isCave     = id === 'cave';
     // Ground pack: forest uses its own; twilight and cinder share brown_mud
     // (cinder gets a much hotter color tint on top so it reads as basalt/clay).
     const packKey = isForest ? 'forest' : 'twilight';
@@ -625,6 +678,21 @@ export function buildEnv(scene, renderer) {
       hemi.intensity = 0.35;
       fill.color.setHex(0x6644aa);
       fill.intensity = 0.20;
+    } else if (isCave) {
+      // P4A cohort 2 — Stonewright Caverns lighting. Cooler/darker than
+      // forest: sun is a dim cold-blue stand-in for indirect light filtering
+      // through the cave mouth, the hemi reads cool-mint above (matches the
+      // glowmoss tint) and slot-1 shadow below (matches the fog), and the
+      // fill is a low cool counter-bounce. Ambient base drop comes from
+      // hemi.intensity going to 0.18 (vs forest 0.28). Cave's slot-2
+      // groundTint + slot-1 fogColor pipe in from the STAGES entry above.
+      sun.color.setHex(0x6d7a90);          // pale slate, not warm
+      sun.intensity = 0.55;                // dim — caves don't get sun
+      hemi.color.setHex(0x4c7a72);         // mint-shadow sky (slot-3-leaning)
+      hemi.groundColor.setHex(0x1a1820);   // CAVE_PALETTE.shadow (slot 1)
+      hemi.intensity = 0.18;               // darker than forest baseline 0.28
+      fill.color.setHex(0x4c6a78);         // cool counter-bounce
+      fill.intensity = 0.18;
     }
     // ── Per-stage atmospheric particles (iter 15) ──
     // Show only the cluster for the active stage; flag others off so

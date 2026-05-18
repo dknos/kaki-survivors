@@ -252,26 +252,111 @@ async function main() {
     console.log('phase 1 (skeleton): ' + status + ' — ' + p1Reason
                 + '  [fps=' + fps1.toFixed(1) + ']');
 
+    // ── Phase 2 (P4A cohort 2) — Stalactite cluster landed ──────────────
+    // Probes caveStage.userData.stalactiteCount, set in src/stages/cave/
+    // caveStage.js after buildStalactiteCluster returns. Cohort 2 author-
+    // anchors 6 clusters × 4-5 stalactites = 24-30 instances; threshold
+    // ≥6 is the conservative gate so future cohort tweaks (e.g. dropping
+    // an interior cluster for room overlap) don't trip this.
+    const p2 = await page.evaluate(() => {
+      const s = window.kkState;
+      if (!s || !s.scene) return { ok: false, reason: 'kkState/scene missing' };
+      const caveGroup = s.scene.getObjectByName('caveStage');
+      if (!caveGroup) return { ok: false, reason: 'caveStage group missing' };
+      const n = (caveGroup.userData && caveGroup.userData.stalactiteCount) | 0;
+      if (n < 6) {
+        return { ok: false, reason: 'stalactiteCount=' + n + ' (expected >=6)' };
+      }
+      // Confirm the cluster group itself is mounted under caveStage and
+      // contains two InstancedMesh children (bodies + tips).
+      const stalGroup = caveGroup.getObjectByName('caveStage_stalactites');
+      if (!stalGroup) {
+        return { ok: false, reason: 'caveStage_stalactites group missing', count: n };
+      }
+      const bodies = stalGroup.getObjectByName('caveStage_stalactiteBodies');
+      const tips   = stalGroup.getObjectByName('caveStage_stalactiteTips');
+      if (!bodies || !tips) {
+        return { ok: false, reason: 'stalactite bodies/tips InstancedMesh missing', count: n };
+      }
+      // Tips must be bloom-tagged for the slot-3 moss glow per the style doc.
+      const tipsBloom = tips.layers && typeof tips.layers.mask === 'number'
+        ? (tips.layers.mask & (1 << 1)) !== 0
+        : false;
+      return {
+        ok: true,
+        reason: 'stalactiteCount=' + n + ', bodies+tips present, tips bloom=' + tipsBloom,
+        count: n, tipsBloom,
+      };
+    });
+    console.log('phase 2 (stalactites): ' + (p2.ok ? 'PASS' : 'FAIL') + ' — ' + p2.reason);
+
+    // ── Phase 3 (P4A cohort 2) — env.js cave wire-up ─────────────────────
+    // Asserts the cave entry exists in ATMOS_SPECS (via the cluster object
+    // on envGroup.userData.atmosClusters.cave) AND that the lighting +
+    // fog colors came from the cave branch of applyStageTint (not the
+    // forest-baseline fallthrough). Direct object probe — no screenshot
+    // path, deterministic under headless swiftshader.
+    const p3 = await page.evaluate(() => {
+      const s = window.kkState;
+      if (!s) return { ok: false, reason: 'kkState missing' };
+      const env = s.envGroup;
+      if (!env || !env.userData) return { ok: false, reason: 'envGroup missing' };
+      // (a) ATMOS_SPECS cave cluster exists + is the active one.
+      const clusters = env.userData.atmosClusters;
+      if (!clusters || !clusters.cave) {
+        return { ok: false, reason: 'envGroup.userData.atmosClusters.cave missing — ATMOS_SPECS cave entry not registered' };
+      }
+      if (!clusters.cave.visible) {
+        return { ok: false, reason: 'atmos cave cluster present but not visible (active stage mismatch?)' };
+      }
+      // (b) Fog color matches CAVE_PALETTE.shadow (0x1a1820). applyStageTint
+      // already pipes stage.fogColor through, so this validates the cave
+      // STAGES entry → fog plumbing too.
+      const fogHex = (s.scene && s.scene.fog && s.scene.fog.color)
+        ? s.scene.fog.color.getHex() : -1;
+      if (fogHex !== 0x1a1820) {
+        return { ok: false, reason: 'scene.fog.color=0x' + fogHex.toString(16) + ' (expected 0x1a1820)' };
+      }
+      // (c) Lighting deltas — cave arm sets hemi.intensity=0.18 (vs forest
+      // baseline 0.28). Probe hemi via envGroup userData stash.
+      const hemi = env.userData.hemi;
+      if (!hemi) return { ok: false, reason: 'envGroup.userData.hemi missing' };
+      if (hemi.intensity > 0.22) {
+        // Forest baseline is 0.28; cave should drop to 0.18. Threshold 0.22
+        // catches "fell through to forest baseline" without rejecting small
+        // future tweaks to the cave value.
+        return { ok: false, reason: 'hemi.intensity=' + hemi.intensity + ' (expected <=0.22 for cave)' };
+      }
+      return {
+        ok: true,
+        reason: 'atmos cave active, fog=0x' + fogHex.toString(16) + ', hemi.intensity=' + hemi.intensity.toFixed(3),
+        fogHex, hemiIntensity: hemi.intensity,
+      };
+    });
+    console.log('phase 3 (env cave branch): ' + (p3.ok ? 'PASS' : 'FAIL') + ' — ' + p3.reason);
+
     // ── Summary ───────────────────────────────────────────────────────────
     const runtimeSec = ((Date.now() - t0) / 1000).toFixed(1);
 
     console.log('\n========== SMOKE SUMMARY ==========');
-    console.log('phase 1 (skeleton): ' + (p1Pass ? 'PASS' : 'FAIL'));
+    console.log('phase 1 (skeleton):       ' + (p1Pass ? 'PASS' : 'FAIL'));
+    console.log('phase 2 (stalactites):    ' + (p2.ok  ? 'PASS' : 'FAIL'));
+    console.log('phase 3 (env cave branch):' + (p3.ok  ? 'PASS' : 'FAIL'));
     console.log('runtime: ' + runtimeSec + 's');
     console.log('console.errors:  ' + consoleErrors.length);
     for (const e of consoleErrors) console.log('  - ' + e);
     console.log('pageerrors:      ' + pageErrors.length);
     for (const e of pageErrors) console.log('  - ' + e);
 
-    const hardFail = !p1Pass || pageErrors.length > 0;
+    const hardFail = !p1Pass || !p2.ok || !p3.ok || pageErrors.length > 0;
     if (hardFail) {
-      console.error('[smoke-cave] FAIL — phase=' + (p1Pass ? 'pass' : 'fail')
+      console.error('[smoke-cave] FAIL — phases=' + (p1Pass?1:0) + (p2.ok?1:0) + (p3.ok?1:0)
                     + ' pageerrors=' + pageErrors.length);
       exitCode = 1;
     } else {
-      console.log('[smoke-cave] OK — cohort 1 phase 1 passed');
-      console.log('[smoke-cave] cohort 2…N will add phase 2 (rooms), '
-                  + 'phase 3 (boss), phase 4 (reaper) — see docs/STAGE_AUTHORING.md §7');
+      console.log('[smoke-cave] OK — cohort 2 phases 1+2+3 passed');
+      console.log('[smoke-cave] cohort 3…N will add rooms / boss / reaper / weapons '
+                  + '— see docs/STAGE_AUTHORING.md §7');
     }
   } catch (e) {
     console.error('[smoke-cave] EXCEPTION:', e && (e.stack || e.message || e));
