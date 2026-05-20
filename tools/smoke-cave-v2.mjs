@@ -610,6 +610,38 @@ async function main() {
     });
     console.log('phase 8 (gloomsigil gate): ' + (p8.ok ? 'PASS' : 'FAIL') + ' — ' + p8.reason);
 
+    // ── Phase 9 (P4A cohort 8) — Echo Bolt cave-gated weapon ─────────────
+    // Same stage-gate regression test as phase 8, for the 2nd cave weapon.
+    // Closes the "2 cave weapons" acceptance item. Asserts REGISTRY presence,
+    // stages==['cave'], forest offers=0 (no leak), cave offers>=1.
+    const p9 = await page.evaluate(async () => {
+      let mod;
+      try { mod = await import('./src/weapons/index.js'); }
+      catch (e) { return { ok: false, reason: 'weapons/index import failed: ' + (e && e.message) }; }
+      const REG = mod.REGISTRY;
+      if (!REG || !REG.echobolt) return { ok: false, reason: 'echobolt not in REGISTRY' };
+      const stages = REG.echobolt.stages;
+      if (!Array.isArray(stages) || !stages.includes('cave') || stages.length !== 1) {
+        return { ok: false, reason: 'echobolt.stages != ["cave"] (got ' + JSON.stringify(stages) + ')' };
+      }
+      const s = window.kkState;
+      if (!s || !s.run) return { ok: false, reason: 'kkState.run missing' };
+      const bak = s.run.stage;
+      let forestN = -1, caveN = -1;
+      try {
+        s.run.stage = { id: 'forest' };
+        forestN = mod.weaponChoices(50).filter((c) => c && c.id === 'echobolt').length;
+        s.run.stage = { id: 'cave' };
+        caveN = mod.weaponChoices(50).filter((c) => c && c.id === 'echobolt').length;
+      } finally {
+        s.run.stage = bak;
+      }
+      if (forestN !== 0) return { ok: false, reason: 'echobolt leaked into forest offers (n=' + forestN + ')' };
+      if (caveN < 1) return { ok: false, reason: 'echobolt not offered on cave (n=' + caveN + ')' };
+      return { ok: true, reason: 'stages=[cave], forest offers=0, cave offers=' + caveN };
+    });
+    console.log('phase 9 (echobolt gate): ' + (p9.ok ? 'PASS' : 'FAIL') + ' — ' + p9.reason);
+
     // ── Summary ───────────────────────────────────────────────────────────
     const runtimeSec = ((Date.now() - t0) / 1000).toFixed(1);
 
@@ -622,21 +654,22 @@ async function main() {
     console.log('phase 6 (gloomshrimp):           ' + (p6.ok  ? 'PASS' : 'FAIL'));
     console.log('phase 7 (cave achievements):     ' + (p7.ok  ? 'PASS' : 'FAIL'));
     console.log('phase 8 (gloomsigil gate):       ' + (p8.ok  ? 'PASS' : 'FAIL'));
+    console.log('phase 9 (echobolt gate):         ' + (p9.ok  ? 'PASS' : 'FAIL'));
     console.log('runtime: ' + runtimeSec + 's');
     console.log('console.errors:  ' + consoleErrors.length);
     for (const e of consoleErrors) console.log('  - ' + e);
     console.log('pageerrors:      ' + pageErrors.length);
     for (const e of pageErrors) console.log('  - ' + e);
 
-    const hardFail = !p1Pass || !p2.ok || !p3.ok || !p4.ok || !p5.ok || !p6.ok || !p7.ok || !p8.ok || pageErrors.length > 0;
+    const hardFail = !p1Pass || !p2.ok || !p3.ok || !p4.ok || !p5.ok || !p6.ok || !p7.ok || !p8.ok || !p9.ok || pageErrors.length > 0;
     if (hardFail) {
       console.error('[smoke-cave] FAIL — phases='
-                    + (p1Pass?1:0) + (p2.ok?1:0) + (p3.ok?1:0) + (p4.ok?1:0) + (p5.ok?1:0) + (p6.ok?1:0) + (p7.ok?1:0) + (p8.ok?1:0)
+                    + (p1Pass?1:0) + (p2.ok?1:0) + (p3.ok?1:0) + (p4.ok?1:0) + (p5.ok?1:0) + (p6.ok?1:0) + (p7.ok?1:0) + (p8.ok?1:0) + (p9.ok?1:0)
                     + ' pageerrors=' + pageErrors.length);
       exitCode = 1;
     } else {
-      console.log('[smoke-cave] OK — cohort 7 phases 1+2+3+4+5+6+7+8 passed');
-      console.log('[smoke-cave] cohort 8…N will add rooms / boss / reaper '
+      console.log('[smoke-cave] OK — cohort 8 phases 1..9 passed');
+      console.log('[smoke-cave] cohort 9…N will add rooms / boss / reaper '
                   + '— see docs/STAGE_AUTHORING.md §7');
     }
   } catch (e) {

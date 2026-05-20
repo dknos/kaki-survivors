@@ -52,6 +52,11 @@ const WEAPON_BLURBS = {
     body: (lv) => `Plants a ${lv.radius.toFixed(1)}m sigil field every ${lv.cooldown.toFixed(2)}s that lingers ${lv.duration.toFixed(1)}s, dealing ${lv.dmg} damage twice a second to enemies inside. Cave-only.`,
     tags: ['Zone', 'DoT', 'Cave'],
   },
+  echobolt: {
+    flavor: 'Echo Bolt — A sigil bolt cracks off the cave walls and finds the nearest throat.',
+    body: (lv) => `Fires a bolt every ${lv.cooldown.toFixed(2)}s at the nearest enemy for ${lv.dmg} damage, piercing ${lv.pierce} enem${lv.pierce > 1 ? 'ies' : 'y'}. Cave-only.`,
+    tags: ['Projectile', 'Pierce', 'Cave'],
+  },
   // ── Iter 34 — Phase D signature weapons ──
   sig_cowboy_sixshooter: {
     flavor: 'Six-Shooter — Hammer back, fan the trigger. A revolver dump aimed at the nearest unlucky soul.',

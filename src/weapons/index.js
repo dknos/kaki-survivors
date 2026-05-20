@@ -18,6 +18,8 @@ import frostbloom from './frostbloom.js';
 import sigilbell from './sigilbell.js';
 // P4A cohort 7 (2026-05-20) — cave-stage weapon (stages:['cave'] gated).
 import gloomsigil from './gloomsigil.js';
+// P4A cohort 8 (2026-05-20) — 2nd cave weapon, projectile (stages:['cave']).
+import echobolt from './echobolt.js';
 // Iter 34 — Phase D signature weapons (1 bespoke kit per avatar; Phase F adds the rest).
 import sigCowboySixshooter from './sig/cowboy_sixshooter.js';
 import sigMothmanDustcloak from './sig/mothman_dustcloak.js';
@@ -83,6 +85,7 @@ export const REGISTRY = {
   [frostbloom.id]: frostbloom,
   [sigilbell.id]:  sigilbell,
   [gloomsigil.id]: gloomsigil,
+  [echobolt.id]:   echobolt,
   [sigCowboySixshooter.id]: sigCowboySixshooter,
   [sigMothmanDustcloak.id]: sigMothmanDustcloak,
   [sigSpaceSatellites.id]:  sigSpaceSatellites,
