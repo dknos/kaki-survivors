@@ -3,10 +3,14 @@
  * signature attack. Each named boss now runs its OWN pattern so the silhouette
  * and the tell teach the player who they're fighting:
  *
- *   GROTHAR (idx 0) — Engulf:     1.2s cyan contracting ring, then pull +
+ *   VEXMAW  (idx 0) — Sonic Cone: 0.9s magenta forward wedge tell, then 0.2s
+ *                                  pulse that NEAR-ONE-SHOTS (85% max HP) any
+ *                                  hero still inside the cone. Direction locks
+ *                                  at windup start → side-step to survive. The
+ *                                  first mini-boss of every cycle, so the lethal
+ *                                  cone is the move the player learns first.
+ *   GROTHAR (idx 1) — Engulf:     1.2s cyan contracting ring, then pull +
  *                                  damage + slow.
- *   VEXMAW  (idx 1) — Sonic Cone: 0.9s magenta forward wedge tell, then 0.2s
- *                                  pulse that hits anything inside the cone.
  *   OBLIDOR (idx 2) — Quake Cross:1.6s amber 4-bar tell at cardinals, then
  *                                  4 expanding shockwave bars (safe diagonals).
  *
@@ -268,9 +272,12 @@ function _resetBossTellMotes() {
   _moteInst.instanceMatrix.needsUpdate = true;
 }
 
+// Order is load-bearing: index 0 is the first mini-boss every cycle and maps
+// to MINI_BOSS_PATTERNS[0] (the lethal Sonic Cone). Keep names + patterns in
+// lockstep.
 export const MINI_BOSS_NAMES = [
-  { name: 'GROTHAR THE GLUTTON',     subtitle: 'awakens hungering' },
   { name: 'VEXMAW THE SHRIEKER',     subtitle: 'splits the canopy' },
+  { name: 'GROTHAR THE GLUTTON',     subtitle: 'awakens hungering' },
   { name: 'OBLIDOR, IRON COLOSSUS',  subtitle: 'walks the wood'    },
 ];
 export const FINAL_BOSS_NAME = { name: 'THE NIGHTMARE', subtitle: 'has come for you' };
@@ -492,7 +499,10 @@ const sonicConePattern = {
     const cd = boss._coneDir || { x: 1, z: 0 };
     const dot = (dx / d) * cd.x + (dz / d) * cd.z;
     if (d <= 7.0 && dot >= 0.707) {
-      heroTakeDamage(22);
+      // Near one-shot — the cone is the "move or die" beat. Only the first-slot
+      // mini-boss and the final boss fire it (see MINI_BOSS_PATTERNS order), so
+      // every cone hit should be lethal. Scaled to hpMax → terrifying at any HP.
+      heroTakeDamage(Math.round((state.hero.hpMax || 100) * 0.85));
     }
     boss._coneDir = null;
 
@@ -647,7 +657,10 @@ const quakeCrossPattern = {
   },
 };
 
-export const MINI_BOSS_PATTERNS = [engulfPattern, sonicConePattern, quakeCrossPattern];
+// Index 0 = Sonic Cone so the first mini-boss (and the final boss's cone beat)
+// is the near-one-shot dodge-or-die mechanic. See MINI_BOSS_NAMES — kept in
+// lockstep so VEXMAW the Shrieker owns the cone.
+export const MINI_BOSS_PATTERNS = [sonicConePattern, engulfPattern, quakeCrossPattern];
 
 // ──────────────────────────────────────────────────────────────────────────
 // Per-frame update
