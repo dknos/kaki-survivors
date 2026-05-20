@@ -1,0 +1,60 @@
+#!/usr/bin/env node
+/**
+ * Town hub smoke (CC3 town cohort 1, 2026-05-20).
+ *
+ * Static-source gate (mirrors tools/smoke-sig-weapons.mjs) — town interaction
+ * needs hero movement into an interactable radius + a keydown, which is not
+ * worth driving headless. Instead we assert the WIRING that cohort 1 added:
+ *   1. town.js declares the Shop + Grimoire interactables.
+ *   2. town.js wires _handlers.shop + _handlers.grimoire to the ui modals
+ *      (dynamic import of ui.js — the menuV2 pattern).
+ *   3. town.js builds + places the Grimoire lectern mesh.
+ *   4. enterTown() bumps a persistent townVisits counter (acceptance:
+ *      "persistent visit state").
+ *   5. ui.js exports showShop + showGrimoire (the openers the handlers call).
+ *
+ * Run: node tools/smoke-town.mjs   (no flags, no server, no playwright)
+ */
+import { strict as assert } from 'node:assert';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
+const read = (rel) => readFileSync(join(ROOT, rel), 'utf8');
+
+let pass = 0;
+function ok(msg) { pass++; console.log(`[OK] ${msg}`); }
+
+const town = read('src/town.js');
+const ui = read('src/ui.js');
+
+// 1: interactables present
+assert.ok(/key:\s*'shop'/.test(town), "town.js: shop interactable missing");
+assert.ok(/key:\s*'grimoire'/.test(town), "town.js: grimoire interactable missing");
+assert.ok(!/Shop \(coming soon\)/.test(town), "town.js: shop still labelled 'coming soon'");
+ok('shop + grimoire interactables declared (shop no longer "coming soon")');
+
+// 2: handlers wired to the ui modals via dynamic import
+assert.ok(/_handlers\.shop\s*=/.test(town), "town.js: _handlers.shop not wired");
+assert.ok(/_handlers\.grimoire\s*=/.test(town), "town.js: _handlers.grimoire not wired");
+assert.ok(/import\('\.\/ui\.js'\)[\s\S]*showShop/.test(town), "town.js: shop handler does not open showShop via dynamic import");
+assert.ok(/import\('\.\/ui\.js'\)[\s\S]*showGrimoire/.test(town), "town.js: grimoire handler does not open showGrimoire via dynamic import");
+ok('shop + grimoire handlers open ui modals via dynamic import');
+
+// 3: Grimoire lectern mesh built + placed
+assert.ok(/function _makeGrimoirePedestal\(/.test(town), "town.js: _makeGrimoirePedestal builder missing");
+assert.ok(/_makeGrimoirePedestal\(\)/.test(town), "town.js: grimoire pedestal never instantiated");
+ok('grimoire lectern mesh built + placed');
+
+// 4: persistent visit state
+assert.ok(/setOption\('townVisits'/.test(town), "town.js: enterTown does not persist townVisits");
+ok('enterTown persists townVisits counter');
+
+// 5: ui openers exist
+assert.ok(/export function showShop\(/.test(ui), "ui.js: showShop export missing");
+assert.ok(/export function showGrimoire\(/.test(ui), "ui.js: showGrimoire export missing");
+ok('ui.js exports showShop + showGrimoire');
+
+console.log(`\npass=${pass} fail=0`);
+console.log('ALL CHECKS PASS');

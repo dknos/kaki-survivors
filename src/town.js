@@ -44,7 +44,7 @@ const _handlers = {};
 const _interactables = [
   { pos: { x: 0, z: 14 },  radius: 3.5, label: '⚔  Enter the Hunt',      key: 'gate'  },
   { pos: { x: 0, z: -14 }, radius: 4.0, label: '🏠  Enter the House',    key: 'house' },
-  { pos: { x: -12, z: -3 }, radius: 3.0, label: '🛒  Shop (coming soon)', key: 'shop'  },
+  { pos: { x: -12, z: -3 }, radius: 3.0, label: '🛒  Shop · Spend embers', key: 'shop'  },
 ];
 // Per-character statue refs so we can repaint selection rings on select.
 const _statueRefs = {};
@@ -274,6 +274,38 @@ function _makeShopStall() {
     stripe.position.set(-1.35 + i * 0.54, 3.0, 0.4);
     stripe.rotation.x = -Math.PI / 3;
     g.add(stripe);
+  }
+  return g;
+}
+
+// Grimoire lectern (CC3 town cohort 1) — a stone reading-stand with a glowing
+// open book on top. E opens the evolution Grimoire (ui.showGrimoire). Visual:
+// short pillar + angled slab + an emissive-violet book on the bloom layer so
+// it reads as arcane from across the plaza.
+function _makeGrimoirePedestal() {
+  const g = new THREE.Group();
+  // Pillar base
+  const post = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.55, 1.2, 10), _matStandard(0x4a4a52, 0.92));
+  post.position.y = 0.6;
+  post.castShadow = true; post.receiveShadow = true;
+  g.add(post);
+  // Angled reading slab
+  const slab = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.12, 1.0), _matStandard(0x6a4a30, 0.85));
+  slab.position.set(0, 1.28, 0);
+  slab.rotation.x = -Math.PI / 7;
+  slab.castShadow = true;
+  g.add(slab);
+  // Open book — two emissive violet pages on the bloom layer.
+  const pageMat = new THREE.MeshStandardMaterial({
+    color: 0x2a1840, emissive: 0xc87bff, emissiveIntensity: 0.7,
+    roughness: 0.6, side: THREE.DoubleSide,
+  });
+  for (const sx of [-1, 1]) {
+    const page = new THREE.Mesh(new THREE.PlaneGeometry(0.55, 0.75), pageMat);
+    page.position.set(sx * 0.3, 1.4, 0);
+    page.rotation.set(-Math.PI / 7, sx * 0.18, 0);
+    page.layers.enable(BLOOM_LAYER);
+    g.add(page);
   }
   return g;
 }
@@ -554,6 +586,35 @@ export function buildTown(scene) {
     _showBrazierToast('🔥 Helltide queued for next run.');
   };
 
+  // CC3 town cohort 1 — Grimoire lectern. Mirrored back-left of the plaza,
+  // clear of gate(0,14) / house(0,-14) / shop(-12,-3) / casino(12,-3) /
+  // brazier(8,12) / the statue arc (z≈10.5, x∈[-7,7]).
+  const grimoire = _makeGrimoirePedestal();
+  grimoire.position.set(-9, 0, -9);
+  grimoire.rotation.y = Math.PI / 5;
+  g.add(grimoire);
+  _interactables.push({
+    pos: { x: -9, z: -9 }, radius: 2.6,
+    label: '📖  Grimoire · Evolution recipes',
+    key: 'grimoire',
+  });
+
+  // CC3 town cohort 1 — wire the Shop + Grimoire interactables to their modals.
+  // Dynamic import of ui.js (matches menuV2's _openGrimoire pattern) so town.js
+  // doesn't pull ui internals into its module graph / risk a circular load.
+  // Guarded with `if (!_handlers.x)` so an explicit main.js setInteractionHandler
+  // override still wins.
+  if (!_handlers.shop) {
+    _handlers.shop = () => {
+      import('./ui.js').then((m) => { try { m.showShop && m.showShop(); } catch (_) {} }).catch(() => {});
+    };
+  }
+  if (!_handlers.grimoire) {
+    _handlers.grimoire = () => {
+      import('./ui.js').then((m) => { try { m.showGrimoire && m.showGrimoire(); } catch (_) {} }).catch(() => {});
+    };
+  }
+
   // ── Character statues — one per CHARACTERS entry, arc'd between hero
   // spawn (z=6) and the Adventure Gate (z=14). Player walks through them
   // on the way to the gate so character pick is the natural pre-run beat.
@@ -666,6 +727,13 @@ export function setInteractionHandler(key, fn) { _handlers[key] = fn; }
 export function enterTown() {
   state.mode = 'town';
   if (_group) _group.visible = true;
+  // CC3 town cohort 1 — persistent visit state. Count town visits so future
+  // cohorts (NPC greetings, "welcome back" dressing) can branch on first-vs-
+  // returning. Persisted via meta so it survives reloads.
+  try {
+    const meta = getMeta();
+    setOption('townVisits', ((meta && meta.townVisits) | 0) + 1);
+  } catch (_) {}
   // Spawn just inside the plaza, facing the gate
   state.hero.pos.set(0, 0, 6);
   state.hero.vel.set(0, 0, 0);
