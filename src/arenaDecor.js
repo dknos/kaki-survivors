@@ -20,8 +20,9 @@
  * the bloom pass. Ground rune circles stay off-bloom (subtle ambient).
  */
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { BLOOM_LAYER } from './postfx.js';
-import { cloneCached } from './assets.js';
+import { cloneCached, GLTF_CACHE } from './assets.js';
 import { makeRuneRingTexture } from './enemyTells.js';
 import { fxTex } from './fxTextures.js';
 import { FOREST_ROOMS } from './forestRooms.js';
@@ -99,6 +100,132 @@ function _scatterRing(rMin, rMax, biasPow = 1.6) {
 
 function _track(obj) { _disposables.push(obj); }
 
+// ── KayKit forest accents (scripts/fetch-kaykit.sh) ─────────────────────────
+// Real GLB trees/bushes/rocks scattered ON TOP of the procedural tree field as
+// edge accents. ONE InstancedMesh per unique prop geo (1 draw call each) keeps
+// the draw-call budget intact. Geometry is baked once per key (cloned scene →
+// world-baked merged BufferGeometry + material) and cached module-wide so all
+// 7 rooms share the same source buffers. (Reuses the module's _mulberry32.)
+
+// Curated accent keys (registered in assets.js _FOREST_ACCENT_PAIRS).
+const _KK_TREES  = ['kkf_tree1', 'kkf_tree2', 'kkf_tree3', 'kkf_tree4', 'kkf_tree5', 'kkf_tree_bare1', 'kkf_tree_bare2'];
+const _KK_BUSHES = ['kkf_bush1', 'kkf_bush2', 'kkf_bush3'];
+const _KK_ROCKS  = ['kkf_rock1', 'kkf_rock2', 'kkf_rock3', 'kkf_rock4', 'kkf_rock5'];
+
+// key → { geo, mat (single|array), height, footY }. Built lazily, cached.
+const _kkBaked = Object.create(null);
+function _kkBake(key) {
+  if (key in _kkBaked) return _kkBaked[key];
+  let baked = null;
+  try {
+    if (!GLTF_CACHE[key]) { _kkBaked[key] = null; return null; }
+    const src = cloneCached(key);
+    if (src) {
+      src.updateMatrixWorld(true);
+      const geos = [], mats = [];
+      src.traverse((o) => {
+        if (o.isMesh && o.geometry) {
+          const g = o.geometry.clone();
+          g.applyMatrix4(o.matrixWorld);
+          // Keep only attributes common to all KayKit props so the merge can't
+          // fail on a stray tangent/color buffer one mesh has and another lacks.
+          for (const attr of Object.keys(g.attributes)) {
+            if (attr !== 'position' && attr !== 'normal' && attr !== 'uv') g.deleteAttribute(attr);
+          }
+          geos.push(g);
+          mats.push(Array.isArray(o.material) ? o.material[0] : o.material);
+        }
+      });
+      if (geos.length) {
+        // KayKit forest props are single-mesh (one atlas material), so the
+        // common path uses the lone geometry directly — mergeGeometries returns
+        // null for a 1-element array. Only merge when a prop genuinely has
+        // multiple primitives; fall back to the first geo if the merge fails.
+        let merged, mat;
+        const _fb = () => new THREE.MeshStandardMaterial({ color: 0x7a8a5a });
+        if (geos.length === 1) {
+          merged = geos[0];
+          mat = mats[0] ? mats[0].clone() : _fb();
+        } else {
+          const m = mergeGeometries(geos, true);   // useGroups for multi-mat
+          if (m) {
+            merged = m;
+            mat = mats.map((mm) => (mm ? mm.clone() : _fb()));
+          } else {
+            merged = geos[0];
+            mat = mats[0] ? mats[0].clone() : _fb();
+          }
+        }
+        merged.computeBoundingBox();
+        const bb = merged.boundingBox;
+        const height = Math.max(1e-3, bb.max.y - bb.min.y);
+        baked = { geo: merged, mat, height, footY: bb.min.y };
+      }
+    }
+  } catch (e) {
+    console.warn(`[arenaDecor] KayKit bake failed for ${key}:`, e);
+    baked = null;
+  }
+  _kkBaked[key] = baked;
+  return baked;
+}
+
+// Build ONE InstancedMesh per key (scene-scoped, 1 draw call each), spreading
+// `perRoom` instances around EVERY forest room's edges. Added to the arena
+// decor group so it's torn down with the stage; geo/mat tracked once.
+function _kkScatterKey(group, key, perRoom, targetH, rng) {
+  const baked = _kkBake(key);
+  if (!baked) return 0;
+  const rooms = Object.keys(FOREST_ROOMS);
+  const total = rooms.length * perRoom;
+  const inst = new THREE.InstancedMesh(baked.geo, baked.mat, total);
+  inst.castShadow = false;
+  inst.receiveShadow = false;
+  inst.frustumCulled = true;
+  const dummy = new THREE.Object3D();
+  let i = 0;
+  for (const roomId of rooms) {
+    const room = FOREST_ROOMS[roomId];
+    const b = room.bounds, cx = room.center.x, cz = room.center.z;
+    const halfX = (b.maxX - b.minX) * 0.5, halfZ = (b.maxZ - b.minZ) * 0.5;
+    for (let k = 0; k < perRoom; k++, i++) {
+      // Edge-biased: push toward the room bounds, clear of the center where
+      // combat happens.
+      const ex = 0.62 + rng() * 0.38;            // 0.62..1.0 of half-extent
+      const sideX = rng() < 0.5 ? -1 : 1;
+      const sideZ = rng() < 0.5 ? -1 : 1;
+      const x = cx + sideX * ex * halfX * (0.7 + rng() * 0.3);
+      const z = cz + sideZ * ex * halfZ * (0.7 + rng() * 0.3);
+      const s = (targetH / baked.height) * (0.8 + rng() * 0.5);
+      dummy.position.set(x, -baked.footY * s, z);
+      dummy.rotation.set(0, rng() * Math.PI * 2, 0);
+      dummy.scale.setScalar(s);
+      dummy.updateMatrix();
+      inst.setMatrixAt(i, dummy.matrix);
+    }
+  }
+  inst.instanceMatrix.needsUpdate = true;
+  group.add(inst);
+  if (!baked.tracked) {        // dispose the shared master exactly once
+    baked.tracked = true;
+    _track(baked.geo);
+    if (Array.isArray(baked.mat)) baked.mat.forEach(_track); else _track(baked.mat);
+  }
+  return total;
+}
+
+// Scene-scoped accent pass (gated once per scene in _buildForestDecor). One
+// InstancedMesh per prop key, instances spread across all room edges. Seeded
+// so the layout is deterministic across reloads / headless tests.
+function _loadKayKitForestAccents(group) {
+  const rng = _mulberry32(0x4B4B17C0);
+  let n = 0;
+  for (const key of _KK_TREES)  n += _kkScatterKey(group, key, 3, 6.5, rng);
+  for (const key of _KK_BUSHES) n += _kkScatterKey(group, key, 5, 1.2, rng);
+  for (const key of _KK_ROCKS)  n += _kkScatterKey(group, key, 4, 1.3, rng);
+  return n;
+}
+
 // ── stage packs ───────────────────────────────────────────────────────────────
 
 /**
@@ -122,6 +249,21 @@ function _buildForestDecor(group, opts) {
     case 'mossroot':       result = _buildMossrootDecor(group); break;
     case 'glowfen':        result = _buildGlowfenDecor(group); break;
     default:               result = _buildGladeDecor(group); break;
+  }
+  // ── KayKit forest accents (scene-scoped, once per scene) ──
+  // Real GLB trees/bushes/rocks at every room's edges, layered on the
+  // procedural tree field. One InstancedMesh per prop key (1 draw call each).
+  // Gated once-per-scene like the landmark/neutral loaders since it spans all
+  // rooms; added to the arena decor group so it tears down with the stage.
+  // No-op if the kkf_* kit hasn't loaded (preloadStage('forest') loads it).
+  if (_gameState && !_gameState._kkAccentsLoaded) {
+    _gameState._kkAccentsLoaded = true;
+    try {
+      _loadKayKitForestAccents(group);
+    } catch (e) {
+      console.warn('[arenaDecor] KayKit forest accents failed:', e);
+      _gameState._kkAccentsLoaded = false;
+    }
   }
   // ── FE-V2 Landmarks (2026-05-17) ──
   // Landmarks are scene-scoped (span all 7 rooms), not room-scoped. The
@@ -2675,5 +2817,9 @@ export function clearArenaDecor(scene) {
   }
   for (const d of _disposables) { try { d.dispose && d.dispose(); } catch (_) {} }
   _disposables = [];
+  // KayKit accents: the baked masters were just disposed via _disposables, so
+  // drop the cache + clear the once-flag so a re-enter rebuilds fresh buffers.
+  for (const k in _kkBaked) delete _kkBaked[k];
+  if (_gameState) _gameState._kkAccentsLoaded = false;
   if (scene) _restoreSkybox(scene);
 }

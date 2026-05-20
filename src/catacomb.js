@@ -22,7 +22,7 @@ import { ENEMY_TIERS } from './config.js';
 import { bindPrompt, setPromptLabel } from './buttonPrompts.js';
 import { BLOOM_LAYER } from './postfx.js';
 import { makeRuneRingTexture } from './enemyTells.js';
-import { cloneCached } from './assets.js';
+import { cloneCached, GLTF_CACHE, preloadDungeonKit } from './assets.js';
 import { fxTex } from './fxTextures.js';
 import { tex } from './particleTextures.js';
 import { applyFloorTier, floorDecalGeometry, floorDecalMaterial } from './fxLayers.js';
@@ -734,17 +734,28 @@ export function tickCatacombEntrance(dt) {
 }
 
 function _spawnWave() {
-  // Pick weak tiers (hp ≤ 18, non-elite, non-ranged for simplicity)
-  const pool = ENEMY_TIERS.filter(t => t.hp <= 18 && !t.elite && !t.ranged);
-  const count = WAVE_MIN_ENEMIES + Math.floor(Math.random() * (WAVE_MAX_ENEMIES - WAVE_MIN_ENEMIES + 1));
+  // Prefer animated KayKit skeletons (dungeon:true) once their GLBs are cached
+  // (lazy-loaded on catacomb entry). Captain (skel_warrior, elite) is held back
+  // for the final wave. Fall back to the weak overworld roster if the skeleton
+  // kit hasn't finished loading yet — keeps the dungeon populated regardless.
+  const skelPool = ENEMY_TIERS.filter(t => t.dungeon && !t.elite && GLTF_CACHE[t.glb]);
+  const fallback = ENEMY_TIERS.filter(t => t.hp <= 18 && !t.elite && !t.ranged);
+  const pool = skelPool.length ? skelPool : fallback;
+  const captain = ENEMY_TIERS.find(t => t.glb === 'skel_warrior');
+  const isFinalWave = _waveIdx === TOTAL_WAVES - 1;
+  // Each KayKit skeleton clones to ~9 SkinnedMeshes + a per-frame mixer, far
+  // heavier than the static fallback mobs — cap skeleton waves lower to keep
+  // the catacomb framerate sane. Fallback (static) waves keep the full count.
+  const usingSkel = pool === skelPool;
+  const count = usingSkel
+    ? (5 + Math.floor(Math.random() * 3))   // 5..7 skeletons
+    : (WAVE_MIN_ENEMIES + Math.floor(Math.random() * (WAVE_MAX_ENEMIES - WAVE_MIN_ENEMIES + 1)));
   import('./enemies.js').then(({ spawnEnemy }) => {
     const hx = state.hero.pos.x, hz = state.hero.pos.z;
-    for (let i = 0; i < count; i++) {
-      const tier = pool[Math.floor(Math.random() * pool.length)];
-      // Spawn around the chamber edges, away from hero spawn (south)
+    const _spawnAt = (tier) => {
       let x, z, attempts = 0;
       do {
-        // Bias toward north half + edges
+        // Bias toward north half + edges, away from hero spawn (south)
         x = (Math.random() - 0.5) * (CHAMBER_W - 4);
         z = -Math.random() * (CHAMBER_D / 2 - 2);   // -halfD..-1
         attempts++;
@@ -752,12 +763,14 @@ function _spawnWave() {
       try {
         const before = state.enemies.active.length;
         spawnEnemy(tier, x, z);
-        // Track the freshly-spawned enemy
         if (state.enemies.active.length > before) {
           _chamberMobIds.add(state.enemies.active[state.enemies.active.length - 1]);
         }
       } catch (_) {}
-    }
+    };
+    for (let i = 0; i < count; i++) _spawnAt(pool[Math.floor(Math.random() * pool.length)]);
+    // Final wave: a single skeleton captain (elite warrior) as the boss beat.
+    if (isFinalWave && captain && GLTF_CACHE[captain.glb]) _spawnAt(captain);
   });
 }
 
@@ -773,10 +786,81 @@ function _dropExitReward() {
   if (_exitChestSpawned) return;
   _exitChestSpawned = true;
   // Guaranteed chest near the north end + 3 Embers
+  const rx = 0, rz = -CHAMBER_D / 2 + 4;
   import('./chest.js').then(({ spawnChest }) => {
-    spawnChest(0, -CHAMBER_D / 2 + 4);
+    spawnChest(rx, rz);
   });
   try { grantEmbers(3); } catch (_) {}
+  // Dungeon-completion XP bonus — a fan of jackpot gems around the chest.
+  // Total ≈ 60% of the hero's current next-level requirement so it stays
+  // meaningful at any level. Riding dropGem keeps the vacuum + level-up
+  // cascade (xp.js updateGems) intact instead of bumping hero.xp blind.
+  try {
+    const total = Math.ceil((state.hero.xpNext || 100) * 0.6);
+    const N = 6;
+    const per = Math.max(20, Math.ceil(total / N)); // ≥20 keeps the jackpot tier
+    import('./xp.js').then(({ dropGem }) => {
+      for (let i = 0; i < N; i++) {
+        const a = (i / N) * Math.PI * 2;
+        _rewardGemPos.set(rx + Math.cos(a) * 2.2, 0.3, rz + Math.sin(a) * 2.2);
+        dropGem(_rewardGemPos, per);
+      }
+    });
+  } catch (_) {}
+}
+const _rewardGemPos = new THREE.Vector3();
+
+// ── KayKit dungeon set-dress (Dungeon Remastered kit) ──────────────────────
+// buildCatacomb runs at boot, BEFORE the kkd_* kit is lazy-loaded, so the rich
+// dressing is applied here once the preload resolves (called from enterCatacomb).
+// Props are decorative only — they don't alter the wall-clamp collision box.
+let _kkDressed = false;
+const _kkDressBox = new THREE.Box3();
+const _kkDressSize = new THREE.Vector3();
+function _addKayKitProp(parent, key, x, z, targetH, rotY = 0) {
+  const m = cloneCached(key);
+  if (!m) return null;
+  m.updateMatrixWorld(true);
+  _kkDressBox.setFromObject(m);
+  _kkDressBox.getSize(_kkDressSize);
+  const h = _kkDressSize.y > 1e-3 ? _kkDressSize.y : 1;
+  const s = targetH / h;
+  m.scale.setScalar(s);
+  m.updateMatrixWorld(true);
+  _kkDressBox.setFromObject(m);
+  m.position.set(x, -_kkDressBox.min.y, z);   // feet on the floor
+  m.rotation.y = rotY;
+  m.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+  parent.add(m);
+  return m;
+}
+function _dressCatacombKayKit() {
+  if (_kkDressed || !_group) return;
+  // Require at least one kit piece to be cached; otherwise bail (retry next entry).
+  if (!GLTF_CACHE['kkd_barrel'] && !GLTF_CACHE['kkd_chest_gold']) return;
+  _kkDressed = true;
+  const hW = CHAMBER_W / 2, hD = CHAMBER_D / 2;
+  // Treasure cluster at the north reward end.
+  _addKayKitProp(_group, 'kkd_chest_gold', -2.2, -hD + 3.5, 1.1, Math.PI);
+  _addKayKitProp(_group, 'kkd_coins',       2.0, -hD + 3.6, 0.5);
+  _addKayKitProp(_group, 'kkd_coins',       3.2, -hD + 4.4, 0.4, 1.2);
+  // Barrels / crates in the corners.
+  _addKayKitProp(_group, 'kkd_barrel',    -hW + 2.0, -hD + 2.0, 1.4);
+  _addKayKitProp(_group, 'kkd_barrel_sm',  hW - 2.2, -hD + 2.3, 1.0, 0.6);
+  _addKayKitProp(_group, 'kkd_crates',    -hW + 2.4,  hD - 3.0, 1.7);
+  _addKayKitProp(_group, 'kkd_box',        hW - 2.4,  hD - 2.6, 1.2, 0.4);
+  // West-wall furnishings.
+  _addKayKitProp(_group, 'kkd_keg',       -hW + 2.0,  6.5, 1.2,  Math.PI / 2);
+  _addKayKitProp(_group, 'kkd_shelf',     -hW + 1.4, -8.5, 2.2,  Math.PI / 2);
+  _addKayKitProp(_group, 'kkd_table',      hW - 3.0,  5.0, 1.0, -0.3);
+  // Candles for warm pools of light, mid-room.
+  _addKayKitProp(_group, 'kkd_candle3',   -6.0, -5.0, 0.7);
+  _addKayKitProp(_group, 'kkd_candle3',    6.0, -5.0, 0.7, 1.0);
+  // Banners on the north wall + rubble debris.
+  _addKayKitProp(_group, 'kkd_banner',    -5.5, -hD + 0.5, 3.4, 0);
+  _addKayKitProp(_group, 'kkd_banner',     5.5, -hD + 0.5, 3.4, 0);
+  _addKayKitProp(_group, 'kkd_rubble',     9.0,  9.0, 0.9, 2.1);
+  _addKayKitProp(_group, 'kkd_sword_shield', -9.0, -2.0, 1.3, 0.5);
 }
 
 export function enterCatacomb(returnPos) {
@@ -798,9 +882,20 @@ export function enterCatacomb(returnPos) {
   state.hero.vel.set(0, 0, 0);
   state.hero.facing.set(0, 0, -1);
 
-  // Wave state — kick off first wave immediately
+  // Lazy-load the KayKit dungeon kit + animated skeletons (reachable from any
+  // stage, so it can't ride a fixed preloadStage arm). Waves gracefully fall
+  // back to the overworld roster until the cache populates; the KayKit set-
+  // dress is applied once the preload resolves (props persist on _group).
+  try {
+    const p = preloadDungeonKit();
+    if (p && p.then) p.then(() => { try { _dressCatacombKayKit(); } catch (_) {} });
+    else _dressCatacombKayKit();
+  } catch (_) {}
+
+  // Wave state — first wave delayed slightly to give the skeleton kit a head
+  // start so wave 1 spawns skeletons instead of fallback mobs when possible.
   _waveIdx = 0;
-  _waveSpawnDelay = 0.4;
+  _waveSpawnDelay = 1.0;
   _rewardDropped = false;
   _exitChestSpawned = false;
   _chamberMobIds.clear();

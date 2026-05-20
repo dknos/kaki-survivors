@@ -230,24 +230,12 @@ const _legendItems = [
  * subsequent calls just re-render.
  */
 export function mountLegend(parent) {
-  ensureStyles();
-  // Touch: the persistent kbm-glyph legend ("[E] Interact [Space] Dash [P] Pause")
-  // is the on-screen clutter the user flagged — its glyphs are unpressable on a
-  // phone. Interact is contextual (bindPrompt) and jump has its own touch button.
-  if (isCoarsePointer()) {
-    if (_legendEl) _legendEl.style.display = 'none';
-    return _legendEl;
-  }
-  if (!_legendEl) {
-    _legendEl = document.createElement('div');
-    _legendEl.className = 'kk-prompt-legend';
-    _legendEl.id = 'kk-prompt-legend';
-  }
-  const host = parent || document.body;
-  if (_legendEl.parentNode !== host) host.appendChild(_legendEl);
-  _renderLegend();
-  _startDevicePoll();
-  return _legendEl;
+  // Persistent legend ("[E] Interact [Space] Dash [P] Pause") removed from ALL
+  // screens per user request. Interact stays contextual (bindPrompt prompt that
+  // fades in near interactables); dash/pause have no on-screen glyph anymore.
+  if (_legendEl && _legendEl.parentNode) _legendEl.parentNode.removeChild(_legendEl);
+  _legendEl = null;
+  return null;
 }
 
 function _renderLegend() {

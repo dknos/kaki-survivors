@@ -126,8 +126,28 @@ export function disposeCachedGLTF(key) {
  * Use with THREE.AnimationMixer to drive idle/walk/attack on enemies.
  */
 export function getClips(key) {
+  // KayKit skeleton character meshes ship WITHOUT embedded clips — the clips
+  // live in the two shared Rig_Medium banks. Splice them in by name so the
+  // enemy mixer path (enemies.js _makePooledMesh) drives them like any other
+  // animated GLB. Clips are immutable data; sharing across mixers is safe.
+  if (key && key.indexOf('skel_') === 0 && key !== 'skel_rig_general' && key !== 'skel_rig_move') {
+    return getSkeletonClips();
+  }
   const gltf = GLTF_CACHE[key];
   return (gltf && gltf.animations) ? gltf.animations : [];
+}
+
+let _skelClips = null;
+/** Merged Rig_Medium animation clips (General + MovementBasic). Cached. */
+export function getSkeletonClips() {
+  if (_skelClips) return _skelClips;
+  const g = GLTF_CACHE['skel_rig_general'];
+  const m = GLTF_CACHE['skel_rig_move'];
+  const out = [];
+  if (g && g.animations) out.push(...g.animations);
+  if (m && m.animations) out.push(...m.animations);
+  if (out.length) _skelClips = out;          // only cache once populated
+  return out;
 }
 
 /**
@@ -501,6 +521,86 @@ const _TWILIGHT_KIT_PAIRS = [
   ['kit_gravestone2','assets/kits/ruins/gravestone_alt.glb'],
 ];
 
+// ── KayKit imports (scripts/fetch-kaykit.sh) ────────────────────────────────
+// Forest Nature accents — curated trees/bushes/rocks scattered as InstancedMesh
+// accents ON TOP of the procedural tree field (arenaDecor.js). Loaded on forest.
+const _FOREST_ACCENT_PAIRS = [
+  ['kkf_tree1',      'assets/kits/forest/Tree_1_A.glb'],
+  ['kkf_tree2',      'assets/kits/forest/Tree_2_A.glb'],
+  ['kkf_tree3',      'assets/kits/forest/Tree_2_C.glb'],
+  ['kkf_tree4',      'assets/kits/forest/Tree_3_A.glb'],
+  ['kkf_tree5',      'assets/kits/forest/Tree_4_A.glb'],
+  ['kkf_tree_bare1', 'assets/kits/forest/Tree_Bare_1_A.glb'],
+  ['kkf_tree_bare2', 'assets/kits/forest/Tree_Bare_2_A.glb'],
+  ['kkf_bush1',      'assets/kits/forest/Bush_1_A.glb'],
+  ['kkf_bush2',      'assets/kits/forest/Bush_2_A.glb'],
+  ['kkf_bush3',      'assets/kits/forest/Bush_4_A.glb'],
+  ['kkf_rock1',      'assets/kits/forest/Rock_1_A.glb'],
+  ['kkf_rock2',      'assets/kits/forest/Rock_1_E.glb'],
+  ['kkf_rock3',      'assets/kits/forest/Rock_2_A.glb'],
+  ['kkf_rock4',      'assets/kits/forest/Rock_3_A.glb'],
+  ['kkf_rock5',      'assets/kits/forest/Rock_3_H.glb'],
+];
+
+// Dungeon Remastered — modular walls/floors/pillars/stairs + dressing props.
+// Used by catacomb.js to build a real walled room instead of the bare box.
+// Lazy-loaded on catacomb entry (preloadDungeonKit) since the catacomb is
+// reachable from any stage, not just void.
+const _KAYKIT_DUNGEON_PAIRS = [
+  ['kkd_wall',           'assets/kits/dungeon/wall.glb'],
+  ['kkd_wall_corner',    'assets/kits/dungeon/wall_corner.glb'],
+  ['kkd_wall_corner_sm', 'assets/kits/dungeon/wall_corner_small.glb'],
+  ['kkd_wall_doorway',   'assets/kits/dungeon/wall_doorway.glb'],
+  ['kkd_wall_arched',    'assets/kits/dungeon/wall_arched.glb'],
+  ['kkd_wall_broken',    'assets/kits/dungeon/wall_broken.glb'],
+  ['kkd_wall_cracked',   'assets/kits/dungeon/wall_cracked.glb'],
+  ['kkd_wall_window',    'assets/kits/dungeon/wall_window_open.glb'],
+  ['kkd_wall_endcap',    'assets/kits/dungeon/wall_endcap.glb'],
+  ['kkd_wall_half',      'assets/kits/dungeon/wall_half.glb'],
+  ['kkd_wall_tsplit',    'assets/kits/dungeon/wall_Tsplit.glb'],
+  ['kkd_wall_pillar',    'assets/kits/dungeon/wall_pillar.glb'],
+  ['kkd_floor_large',    'assets/kits/dungeon/floor_tile_large.glb'],
+  ['kkd_floor_small',    'assets/kits/dungeon/floor_tile_small.glb'],
+  ['kkd_floor_dirt',     'assets/kits/dungeon/floor_dirt_large.glb'],
+  ['kkd_floor_grate',    'assets/kits/dungeon/floor_tile_big_grate.glb'],
+  ['kkd_floor_spikes',   'assets/kits/dungeon/floor_tile_big_spikes.glb'],
+  ['kkd_pillar',         'assets/kits/dungeon/pillar_decorated.glb'],
+  ['kkd_column',         'assets/kits/dungeon/column.glb'],
+  ['kkd_stairs',         'assets/kits/dungeon/stairs.glb'],
+  ['kkd_stairs_wide',    'assets/kits/dungeon/stairs_wide.glb'],
+  ['kkd_barrel',         'assets/kits/dungeon/barrel_large.glb'],
+  ['kkd_barrel_sm',      'assets/kits/dungeon/barrel_small.glb'],
+  ['kkd_box',            'assets/kits/dungeon/box_large.glb'],
+  ['kkd_crates',         'assets/kits/dungeon/crates_stacked.glb'],
+  ['kkd_chest',          'assets/kits/dungeon/chest.glb'],
+  ['kkd_chest_gold',     'assets/kits/dungeon/chest_gold.glb'],
+  ['kkd_candle3',        'assets/kits/dungeon/candle_triple.glb'],
+  ['kkd_candle',         'assets/kits/dungeon/candle_lit.glb'],
+  ['kkd_coins',          'assets/kits/dungeon/coin_stack_large.glb'],
+  ['kkd_keg',            'assets/kits/dungeon/keg.glb'],
+  ['kkd_table',          'assets/kits/dungeon/table_medium.glb'],
+  ['kkd_shelf',          'assets/kits/dungeon/shelf_large.glb'],
+  ['kkd_rubble',         'assets/kits/dungeon/rubble_large.glb'],
+  ['kkd_banner',         'assets/kits/dungeon/banner_thin_brown.glb'],
+  ['kkd_sword_shield',   'assets/kits/dungeon/sword_shield.glb'],
+];
+
+// Skeletons — 4 rigged character meshes + 2 shared anim banks (Rig_Medium).
+// Clips live in skel_rig_*; bind to a cloned char SkinnedMesh by bone name via
+// an AnimationMixer. Used for animated elites + catacomb wave mobs (low counts
+// only — skinned meshes are too heavy for the full horde). Lazy-loaded.
+const _SKELETON_PAIRS = [
+  ['skel_mage',        'assets/kits/skeletons/Skeleton_Mage.glb'],
+  ['skel_minion',      'assets/kits/skeletons/Skeleton_Minion.glb'],
+  ['skel_rogue',       'assets/kits/skeletons/Skeleton_Rogue.glb'],
+  ['skel_warrior',     'assets/kits/skeletons/Skeleton_Warrior.glb'],
+  ['skel_rig_general', 'assets/kits/skeletons/Rig_Medium_General.glb'],
+  ['skel_rig_move',    'assets/kits/skeletons/Rig_Medium_MovementBasic.glb'],
+];
+
+/** Char-key list (excludes the anim-only rigs) for spawn-side variant picks. */
+export const SKELETON_CHAR_KEYS = ['skel_mage', 'skel_minion', 'skel_rogue', 'skel_warrior'];
+
 /**
  * Tier 2 — run-start. Loads enemy roster + props + stage-specific decor
  * before the world spawns. Idempotent across re-calls (already-cached
@@ -521,6 +621,7 @@ export function preloadStage(stageId) {
   switch (stageId) {
     case 'forest':
       pairs.push(..._FOREST_BUG_PAIRS);
+      pairs.push(..._FOREST_ACCENT_PAIRS);
       break;
     case 'twilight':
       pairs.push(..._TWILIGHT_KIT_PAIRS);
@@ -545,6 +646,24 @@ export function preloadStage(stageId) {
 }
 
 /**
+ * Lazy — KayKit modular dungeon kit + animated skeletons. Awaited by
+ * catacomb.js#enterCatacomb so the chamber builds with real walls/props and
+ * spawns animated skeleton wave mobs. Reachable from any stage, so it can't
+ * ride a fixed preloadStage arm. Idempotent (_loadPairs skips cached keys).
+ */
+export function preloadDungeonKit() {
+  return _loadPairs([..._KAYKIT_DUNGEON_PAIRS, ..._SKELETON_PAIRS]);
+}
+
+/**
+ * Lazy — just the skeleton meshes + anim rigs, for animated elites that can
+ * appear outside the catacomb. Idempotent.
+ */
+export function preloadSkeletons() {
+  return _loadPairs(_SKELETON_PAIRS);
+}
+
+/**
  * Tier 3 — town district. Six Quaternius house/keep/inn kits used by
  * town.js#buildTown. main.js's kkEnterTown wrapper awaits this before
  * buildTown(scene) + enterTown(). Idempotent.
@@ -557,6 +676,22 @@ export function preloadTown() {
     ['kit_keep',     'assets/kits/town/tower_house.glb'],
     ['kit_gate',     'assets/kits/town/castle_gate.glb'],
     ['kit_barracks', 'assets/kits/town/fantasy_barracks.glb'],
+  ]);
+}
+
+/**
+ * Forest overworld buildings — the kingdom-district kits placed by
+ * env.js#buildEnv (BUILDINGS[]). These are the town kits PLUS one dungeon ruin
+ * pillar. buildEnv runs at boot BEFORE preloadStage/preloadTown, so without this
+ * the forest's houses/keep/inn fall back to brown placeholder boxes.
+ * Regressed by #151 (perf: tier preloadAll) which deferred the town kits to the
+ * town-entry path; boot() must await this before buildEnv. Idempotent (reuses
+ * preloadTown's cached entries; only kit_pillar_broken is new here).
+ */
+export function preloadForestBuildings() {
+  return Promise.all([
+    preloadTown(),
+    _loadPairs([['kit_pillar_broken', 'assets/kits/dungeon/pillar_broken.glb']]),
   ]);
 }
 

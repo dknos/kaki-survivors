@@ -152,6 +152,17 @@ export const ENEMY_TIERS = [
   { glb: 'wasp',        hp: 18,  spd: 2.8, dmg: 9,  minD: 2.0, weight: 5,  scale: 0.70, procAnim: 'hover', faceYaw: -Math.PI / 2 },
   { glb: 'caterpillar', hp: 60,  spd: 1.0, dmg: 10, minD: 2.5, weight: 3,  scale: 0.90, procAnim: 'inch' },
   { glb: 'mantis',      hp: 45,  spd: 2.0, dmg: 12, minD: 3.0, weight: 4,  scale: 1.00, procAnim: 'crawl' },
+  // ── KayKit skeletons (CC0) — fully rigged, clips spliced from the shared
+  // Rig_Medium banks (see assets.getSkeletonClips). minD:999 + weight:0 keep
+  // them OUT of the natural spawnDirector roster; they are spawned explicitly
+  // by catacomb.js (dungeon wave mobs + a captain elite). Lazy-loaded via
+  // assets.preloadDungeonKit on catacomb entry. dungeon:true is a marker for
+  // catacomb's pool filter. faceYaw 0 — bipedal KayKit chars face +Z.
+  { glb: 'skel_minion',  hp: 12, spd: 2.7, dmg: 6,  minD: 999, weight: 0, scale: 0.95, dungeon: true },
+  { glb: 'skel_rogue',   hp: 16, spd: 3.3, dmg: 8,  minD: 999, weight: 0, scale: 0.95, dungeon: true },
+  { glb: 'skel_mage',    hp: 22, spd: 1.7, dmg: 8,  minD: 999, weight: 0, scale: 1.00, dungeon: true,
+    ranged: { range: 13, stopAt: 9, cooldown: 2.6, projSpeed: 9, projDmg: 8, projTtl: 2.4 } },
+  { glb: 'skel_warrior', hp: 90, spd: 2.0, dmg: 14, minD: 999, weight: 0, scale: 1.15, dungeon: true, elite: true },
 ];
 
 /**
