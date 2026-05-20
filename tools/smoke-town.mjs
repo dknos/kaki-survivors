@@ -13,6 +13,11 @@
  *      "persistent visit state").
  *   5. ui.js exports showShop + showGrimoire (the openers the handlers call).
  *
+ * CC5 town cohort 2 (2026-05-20) adds the wandering sage NPC:
+ *   6. chatBubble.js exposes the setSpeakerAnchor seam; town.js builds the NPC,
+ *      anchors + speaks its bubble via chatBubble, ticks it from tickTown, and
+ *      keys its first line off the townVisits counter (returning-player dressing).
+ *
  * Run: node tools/smoke-town.mjs   (no flags, no server, no playwright)
  */
 import { strict as assert } from 'node:assert';
@@ -55,6 +60,19 @@ ok('enterTown persists townVisits counter');
 assert.ok(/export function showShop\(/.test(ui), "ui.js: showShop export missing");
 assert.ok(/export function showGrimoire\(/.test(ui), "ui.js: showGrimoire export missing");
 ok('ui.js exports showShop + showGrimoire');
+
+// 6: CC5 town cohort 2 — wandering sage NPC reusing chatBubble.js
+const chat = read('src/chatBubble.js');
+assert.ok(/export function setSpeakerAnchor\(/.test(chat), "chatBubble.js: setSpeakerAnchor seam missing");
+assert.ok(/from '\.\/chatBubble\.js'[\s\S]*?\bsetSpeakerAnchor\b/.test(town) || /\bsetSpeakerAnchor\b[\s\S]*?from '\.\/chatBubble\.js'/.test(town), "town.js: setSpeakerAnchor not imported from chatBubble");
+assert.ok(/function _makeTownNpc\(/.test(town), "town.js: _makeTownNpc builder missing");
+assert.ok(/_makeTownNpc\(\)/.test(town), "town.js: NPC never instantiated");
+assert.ok(/setSpeakerAnchor\(\s*NPC_SPEAKER_ID/.test(town), "town.js: NPC bubble anchor not registered");
+assert.ok(/pushBubble\(\s*NPC_SPEAKER_ID/.test(town), "town.js: NPC never speaks via pushBubble");
+assert.ok(/function _tickNpc\(/.test(town), "town.js: _tickNpc wander/bark scheduler missing");
+assert.ok(/_tickNpc\(dt\)/.test(town), "town.js: _tickNpc not called from tickTown");
+assert.ok(/visits\s*>\s*1/.test(town) && /Back again/.test(town), "town.js: NPC first bark not keyed off townVisits (returning-player dressing)");
+ok('wandering sage NPC: setSpeakerAnchor seam + builder + anchor + townVisits-keyed bark + tickTown wire');
 
 console.log(`\npass=${pass} fail=0`);
 console.log('ALL CHECKS PASS');

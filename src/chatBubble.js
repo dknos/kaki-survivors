@@ -20,10 +20,25 @@ const BUBBLE_MAX_CHARS = 120;
 
 // playerId → { container, lines: [{el, dieAt, text}] }
 const _speakers = new Map();
+// Non-'self' speakers (town NPCs today; remote players later) register a
+// world-space anchor here so tickBubbles can position their bubbles. The
+// anchor is read live each frame, so passing a mutating { pos } object lets a
+// wandering NPC's bubble track it for free. `y` is head height (default 1.9).
+const _anchors = new Map();   // playerId → { pos: {x,z}, y?: number }
 let _input = null;
 let _inputOpen = false;
 
 const _v3 = new THREE.Vector3();
+
+/**
+ * Register (or clear, with anchor=null) a world-space anchor for a non-'self'
+ * speaker. Lets town NPCs — and future networked remotes — render bubbles via
+ * the same pushBubble pipeline as the local hero.
+ */
+export function setSpeakerAnchor(playerId, anchor) {
+  if (anchor) _anchors.set(playerId, anchor);
+  else _anchors.delete(playerId);
+}
 
 function _projectToScreen(worldX, worldY, worldZ) {
   const cam = state.camera;
@@ -125,9 +140,15 @@ export function tickBubbles() {
     // Position above the speaker.
     // 'self' = local hero. Remote IDs (future) would map to their avatar mesh.
     let speaker = null;
-    if (playerId === 'self') speaker = state.hero;
+    let headY = 1.9;
+    if (playerId === 'self') {
+      speaker = state.hero;
+    } else {
+      const a = _anchors.get(playerId);
+      if (a && a.pos) { speaker = a; if (typeof a.y === 'number') headY = a.y; }
+    }
     if (!speaker || !speaker.pos) continue;
-    const head = _projectToScreen(speaker.pos.x, 1.9, speaker.pos.z);
+    const head = _projectToScreen(speaker.pos.x, headY, speaker.pos.z);
     if (head) {
       rec.container.style.left = head.x + 'px';
       rec.container.style.top = head.y + 'px';

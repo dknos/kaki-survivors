@@ -16,7 +16,7 @@ import * as THREE from 'three';
 import { state } from './state.js';
 import { CHARACTERS } from './config.js';
 import { getMeta, setOption } from './meta.js';
-import { initChatBindings, tickBubbles } from './chatBubble.js';
+import { initChatBindings, tickBubbles, pushBubble, setSpeakerAnchor } from './chatBubble.js';
 import { bindPrompt, setPromptLabel, formatPrompt } from './buttonPrompts.js';
 import { BLOOM_LAYER } from './postfx.js';
 import { makeRuneRingTexture } from './enemyTells.js';
@@ -65,6 +65,21 @@ let _brazierIntenseUntil = 0;    // state.time.real when the "hotter" glow ends
 let _tent = null;                // THREE.Group
 let _tentLight = null;           // PointLight ref for flicker
 let _tentLanternMesh = null;     // small additive disc on the lantern shell
+
+// Wandering town NPC (CC5 town cohort 2) — a robed sage-cat that ambles the
+// open central plaza and chatters via chatBubble.js. Its first line per visit is
+// keyed off the townVisits counter (returning-player dressing, folded in here);
+// then it cycles flavor barks themed to the plaza's interactables. Speaker id
+// is named after the concept so a future 2nd NPC isn't a rename.
+const NPC_SPEAKER_ID = 'townSage';
+let _npc = null;   // { group, pos, target, speed, nextBarkAt, firstBarkDone, barkIndex }
+const NPC_BARKS = [
+  'Mind the brazier — it bites back if you provoke it.',
+  'The Grimoire holds recipes even I have half-forgotten.',
+  'Spend your embers before the gate, hm? Coin is no use to the dead.',
+  'The statues remember every champion. Choose yours.',
+  'I have watched kittens stroll through that gate and never... well. Off you go.',
+];
 
 function _matStandard(color, roughness = 0.85, metalness = 0.0) {
   return new THREE.MeshStandardMaterial({ color, roughness, metalness });
@@ -308,6 +323,92 @@ function _makeGrimoirePedestal() {
     g.add(page);
   }
   return g;
+}
+
+// Wandering sage-cat NPC (CC5 town cohort 2). Cheap primitives, dusk-violet
+// robe + cream fur so it reads distinct from the gray statues and the player
+// hero: tapered robe, round head, two ear cones, an arched tail, and a
+// gem-tipped staff (bloom-layer gem sells "sage"). Animated in _tickNpc.
+function _makeTownNpc() {
+  const g = new THREE.Group();
+  const ROBE = 0x6a4a8c;   // dusk-violet (distinct from town's warm browns/golds)
+  const FUR  = 0xd9b88a;   // warm cream
+  const robe = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.32, 0.5, 1.2, 12), _matStandard(ROBE, 0.8),
+  );
+  robe.position.y = 0.6;
+  robe.castShadow = true;
+  g.add(robe);
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.3, 16, 12), _matStandard(FUR, 0.7));
+  head.position.y = 1.45;
+  head.castShadow = true;
+  g.add(head);
+  for (const sx of [-1, 1]) {
+    const ear = new THREE.Mesh(new THREE.ConeGeometry(0.12, 0.24, 6), _matStandard(FUR, 0.7));
+    ear.position.set(sx * 0.16, 1.7, 0);
+    ear.castShadow = true;
+    g.add(ear);
+  }
+  const tail = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.09, 0.7, 6), _matStandard(FUR, 0.7));
+  tail.position.set(0, 0.7, -0.4);
+  tail.rotation.x = 0.9;
+  g.add(tail);
+  const staff = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 1.5, 6), _matStandard(0x3a2a18, 0.9));
+  staff.position.set(0.34, 0.75, 0.1);
+  g.add(staff);
+  const gem = new THREE.Mesh(
+    new THREE.SphereGeometry(0.1, 10, 8),
+    new THREE.MeshStandardMaterial({ color: 0x2a1840, emissive: 0xc87bff, emissiveIntensity: 0.9, roughness: 0.4 }),
+  );
+  gem.position.set(0.34, 1.55, 0.1);
+  gem.layers.enable(BLOOM_LAYER);
+  g.add(gem);
+  return g;
+}
+
+// Wander the NPC inside the open central plaza (target ring r∈[3,7] from origin
+// so it never clips the statue arc / gate / shop / brazier / casino / fence)
+// + run the bark scheduler. First bark per visit is townVisits-keyed; then it
+// cycles NPC_BARKS. Reads hero/meta from the shared imports; no allocations.
+function _tickNpc(dt) {
+  if (!_npc) return;
+  const p = _npc.pos, tgt = _npc.target;
+  let dx = tgt.x - p.x, dz = tgt.z - p.z;
+  let d = Math.hypot(dx, dz);
+  if (d < 0.4) {
+    const a = Math.random() * Math.PI * 2;
+    const r = 3 + Math.random() * 4;
+    tgt.x = Math.cos(a) * r;
+    tgt.z = Math.sin(a) * r;
+    dx = tgt.x - p.x; dz = tgt.z - p.z; d = Math.hypot(dx, dz) || 1;
+  }
+  const step = Math.min(_npc.speed * dt, d);
+  p.x += (dx / d) * step;
+  p.z += (dz / d) * step;
+  const grp = _npc.group;
+  grp.position.x = p.x;
+  grp.position.z = p.z;
+  grp.position.y = 0.04 * Math.sin(state.time.real * 2.2);   // gentle amble bob
+  grp.rotation.y = Math.atan2(dx, dz);                       // face travel dir
+
+  const now = state.time.real;
+  if (!_npc.firstBarkDone) {
+    if (_npc.nextBarkAt === 0) _npc.nextBarkAt = now + 1.2;   // greeting lands ~1.2s after entry
+    if (now >= _npc.nextBarkAt) {
+      const meta = getMeta();
+      const visits = (meta && meta.townVisits) | 0;
+      const greet = (visits > 1)
+        ? 'Back again? The Hunt has been hungry without you.'
+        : 'Welcome to the Hollow, traveler. Rest before the Hunt.';
+      pushBubble(NPC_SPEAKER_ID, greet);
+      _npc.firstBarkDone = true;
+      _npc.nextBarkAt = now + 7 + Math.random() * 3;
+    }
+  } else if (now >= _npc.nextBarkAt) {
+    pushBubble(NPC_SPEAKER_ID, NPC_BARKS[_npc.barkIndex % NPC_BARKS.length]);
+    _npc.barkIndex++;
+    _npc.nextBarkAt = now + 7 + Math.random() * 3;
+  }
 }
 
 // Brief confirmation toast for brazier interaction. ~2s, top-of-screen,
@@ -615,6 +716,25 @@ export function buildTown(scene) {
     };
   }
 
+  // CC5 town cohort 2 — wandering sage NPC. Spawns near plaza center, off the
+  // hero spawn (0,6) so it doesn't overlap the player on entry, then ambles the
+  // open central floor and chatters via chatBubble.js.
+  const npcGroup = _makeTownNpc();
+  _npc = {
+    group: npcGroup,
+    pos: { x: -3, z: 1 },
+    target: { x: 4, z: -2 },
+    speed: 1.6,
+    nextBarkAt: 0,
+    firstBarkDone: false,
+    barkIndex: 0,
+  };
+  npcGroup.position.set(_npc.pos.x, 0, _npc.pos.z);
+  g.add(npcGroup);
+  // Anchor the NPC's chat bubbles to its live (mutating) pos so the bubble
+  // tracks it as it wanders. Head height ~2.0 (above the 1.7 ear tips).
+  setSpeakerAnchor(NPC_SPEAKER_ID, { pos: _npc.pos, y: 2.0 });
+
   // ── Character statues — one per CHARACTERS entry, arc'd between hero
   // spawn (z=6) and the Adventure Gate (z=14). Player walks through them
   // on the way to the gate so character pick is the natural pre-run beat.
@@ -734,6 +854,10 @@ export function enterTown() {
     const meta = getMeta();
     setOption('townVisits', ((meta && meta.townVisits) | 0) + 1);
   } catch (_) {}
+  // Re-arm the sage NPC's greeting so the townVisits-keyed line re-lands on each
+  // entry (visits 2+ get the "back again" variant). The counter was just bumped
+  // above, so the variant reflects this visit.
+  if (_npc) { _npc.firstBarkDone = false; _npc.nextBarkAt = 0; }
   // Spawn just inside the plaza, facing the gate
   state.hero.pos.set(0, 0, 6);
   state.hero.vel.set(0, 0, 0);
@@ -772,7 +896,9 @@ export function tickTown(dt) {
     return;
   }
 
-  // Position + fade speech bubbles each frame (Palace-style chat).
+  // Wander the sage NPC (+ its bark scheduler) first so its bubble reads from
+  // the NPC's current spot, then position + fade all speech bubbles.
+  _tickNpc(dt);
   tickBubbles();
 
   // Animate portal — gentle scale pulse + opacity sine
