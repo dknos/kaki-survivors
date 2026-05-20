@@ -238,6 +238,11 @@ export function spawnAutoAimProjectile(origin, dir, level, dmg, speedMul = 1, pi
 function spawnProjectile(origin, dir, level, dmg, speedMul = 1, pierceBonus = 0, owner = 'autoaim', opts = null) {
   const ice = !!(opts && opts.ice);
   const scaleMul = (opts && opts.scale) || 1;
+  // Attack-recoil signal: stamp hero with fire timestamp + normalized direction
+  // so the animation layer can play a recoil without touching weapon logic.
+  const _alen = Math.hypot(dir.x, dir.z) || 1;
+  state.hero._attackAt  = state.time.real;
+  state.hero._attackDir = { x: dir.x / _alen, z: dir.z / _alen };
   // iter 33u — group is a position-only handle; visuals come from the
   // InstancedMesh pool. Group itself is NOT added to scene.
   const group = new THREE.Group();

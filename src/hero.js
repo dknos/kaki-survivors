@@ -16,8 +16,12 @@ import { spawnDashStreak } from './vfxBurst.js';
 import { smashLogsInRadius } from './destructibles.js';
 import { spawnHeroDamageNumber } from './damageNumbers.js';
 import { spawnImpactBurst } from './vfxBurst.js';
+import { updateHeroProcAnim } from './heroAnim.js';
 
 const _tmpDir = new THREE.Vector3();
+// Reused accumulator for the procedural pose layer (flinch/dash/idle/attack) —
+// reset each frame, no per-frame allocation.
+const _procOut = { dy: 0, rx: 0, rz: 0, sx: 1, sy: 1, sz: 1 };
 
 // ── Mirror Step (Dash evolution) ──────────────────────────────────────────
 // Shared geometry/material caches for the ghost-twin orbital burst.
@@ -405,26 +409,38 @@ export function updateHero(dt) {
       const airFactor = h.grounded ? 1.0 : 0.15;
       const bob = (moving ? Math.abs(Math.sin(_stepPhase * Math.PI)) * 0.25
                           : Math.sin(_stepPhase) * 0.04) * airFactor;
-      _innerMesh.position.y = _baseInnerY + bob;
       // Tilt forward into movement direction (about local X axis)
       const tilt = (moving ? 0.18 : 0) * airFactor + (h.grounded ? 0 : 0.10);
-      _innerMesh.rotation.x = tilt;
       // Side-to-side sway each step (about local Z axis)
       const sway = (moving ? Math.sin(_stepPhase * Math.PI) * 0.10 : 0) * airFactor;
-      _innerMesh.rotation.z = sway;
 
-      // Landing squash — brief Y-flatten + X-bulge after a high-velocity ground hit
+      // Landing squash as scale multipliers (1 = none) — brief Y-flatten +
+      // X/Z-bulge after a high-velocity ground hit. Folded into the compose
+      // below so it stacks with the procedural pose layer instead of fighting it.
+      let sqX = 1, sqY = 1, sqZ = 1;
       if (h._squashUntil && state.time.real < h._squashUntil) {
         const k = (h._squashUntil - state.time.real) / 0.18;   // 1→0
         const amt = (h._squashStrength || 0.5) * k;
-        _innerMesh.scale.y = _baseScale * (1 - amt * 0.25);
-        _innerMesh.scale.x = _baseScale * (1 + amt * 0.15);
-        _innerMesh.scale.z = _baseScale * (1 + amt * 0.15);
+        sqY = 1 - amt * 0.25; sqX = 1 + amt * 0.15; sqZ = 1 + amt * 0.15;
       } else if (h._squashUntil) {
-        // Restore once expired
-        _innerMesh.scale.set(_baseScale, _baseScale, _baseScale);
         h._squashUntil = 0;
       }
+
+      // Procedural pose layer — hit flinch, dash stretch, idle breathing,
+      // attack recoil. Additive offsets / multiplicative scale on top of the
+      // walk + squash above. Reset the accumulator, then compose.
+      _procOut.dy = 0; _procOut.rx = 0; _procOut.rz = 0;
+      _procOut.sx = 1; _procOut.sy = 1; _procOut.sz = 1;
+      try { updateHeroProcAnim(h, state.time.real, dt, _procOut); } catch (_) {}
+
+      _innerMesh.position.y = _baseInnerY + bob + _procOut.dy;
+      _innerMesh.rotation.x = tilt + _procOut.rx;
+      _innerMesh.rotation.z = sway + _procOut.rz;
+      _innerMesh.scale.set(
+        _baseScale * sqX * _procOut.sx,
+        _baseScale * sqY * _procOut.sy,
+        _baseScale * sqZ * _procOut.sz,
+      );
     }
 
     // I-frame flicker
@@ -524,6 +540,8 @@ export function takeDamage(amt) {
   // Flash duration scales 0.10..0.22s with severity. Spark fires at hero
   // chest height so iso camera reads it as a hit, not a footstep.
   h._flashUntil = state.time.real + (0.10 + sev * 0.12);
+  // Procedural hit-flinch trigger (read by heroAnim.js).
+  h._hurtAt = state.time.real;
   try {
     spawnImpactBurst(h.pos.x, (h.pos.y || 0) + 0.9, h.pos.z, 0xff3344, 0.4 + sev * 0.5);
   } catch (_) {}
