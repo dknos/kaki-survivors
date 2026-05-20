@@ -14,6 +14,7 @@ const _v3 = new THREE.Vector3();
 const _flatX = new THREE.Quaternion().setFromEuler(new THREE.Euler(-Math.PI / 2, 0, 0));
 const _zeroScale = new THREE.Vector3(0, 0, 0);
 const _tmpScale  = new THREE.Vector3();    // iter 33k — pool for Matrix4.compose
+const _nearby = [];
 
 let _inst = null;
 let _dirty = false;
@@ -74,10 +75,12 @@ export function updateBlobShadows() {
   }
 
   // Other entities: enemies with castShadow already cast a real one — skip.
-  const arr = state.enemies.active;
-  // Performance: 24u camera-distance gate (576 squared). Skips matrix updates
-  // and drawn instances for enemies far off-screen. O(n) math is cheaper than GPU draw.
-  const DIST_SQ_CAP = 24 * 24;
+  // Performance: SpatialHash avoids O(N) iteration over all active enemies.
+  let arr = state.enemies.active;
+  if (hp && state.enemies.spatial) {
+    arr = state.enemies.spatial.queryRadiusInto(hp, 24, _nearby);
+  }
+
   for (let k = 0; k < arr.length && i < CAP; k++) {
     const e = arr[k];
     if (!e.alive) continue;
@@ -87,11 +90,12 @@ export function updateBlobShadows() {
     const px = e.mesh ? e.mesh.position.x : (e.pos ? e.pos.x : 0);
     const pz = e.mesh ? e.mesh.position.z : (e.pos ? e.pos.z : 0);
 
-    // Check distance to hero
-    if (hp) {
+    // Distance check is handled by queryRadiusInto when spatial hash is used,
+    // but keep it as a fallback if spatial hash is unavailable or hp is null.
+    if (hp && (!state.enemies.spatial || arr === state.enemies.active)) {
       const dx = px - hp.x;
       const dz = pz - hp.z;
-      if (dx * dx + dz * dz > DIST_SQ_CAP) continue;
+      if (dx * dx + dz * dz > 24 * 24) continue;
     }
 
     const ms = e.mesh ? e.mesh.scale.x : 1;
