@@ -74,5 +74,16 @@ assert.ok(/_tickNpc\(dt\)/.test(town), "town.js: _tickNpc not called from tickTo
 assert.ok(/visits\s*>\s*1/.test(town) && /Back again/.test(town), "town.js: NPC first bark not keyed off townVisits (returning-player dressing)");
 ok('wandering sage NPC: setSpeakerAnchor seam + builder + anchor + townVisits-keyed bark + tickTown wire');
 
+// 7: CC6 town cohort 3 — biome gate dressing keyed off selectedStage
+assert.ok(/const _GATE_BIOME\s*=/.test(town), "town.js: _GATE_BIOME map missing");
+assert.ok(/_GATE_BIOME\s*=\s*\{[\s\S]*?forest:[\s\S]*?cave:/.test(town), "town.js: _GATE_BIOME missing forest/cave entries");
+assert.ok(/function _makeGatePlanter\(/.test(town), "town.js: _makeGatePlanter builder missing");
+assert.ok(/_makeGatePlanter\(\)/.test(town), "town.js: gate planter never instantiated");
+assert.ok(/function _applyGateBiome\(/.test(town), "town.js: _applyGateBiome missing");
+assert.ok(/_applyGateBiome\(getMeta\(\)\.selectedStage\)/.test(town), "town.js: gate biome not keyed off selectedStage");
+// refreshed each entry: the call sits in enterTown after the townVisits bump
+assert.ok(/setOption\('townVisits'[\s\S]*?_applyGateBiome\(getMeta\(\)\.selectedStage\)/.test(town), "town.js: gate biome not refreshed in enterTown");
+ok('biome gate dressing: _GATE_BIOME map + planter builder + selectedStage-keyed apply (build + enterTown refresh)');
+
 console.log(`\npass=${pass} fail=0`);
 console.log('ALL CHECKS PASS');

@@ -81,6 +81,20 @@ const NPC_BARKS = [
   'I have watched kittens stroll through that gate and never... well. Off you go.',
 ];
 
+// Gate biome dressing (CC6 town cohort 3) — the emissive growth in the two
+// planters flanking the Adventure Gate recolors to preview the SELECTED stage's
+// biome, so the gate reads as "the way to <destination>". Keyed off
+// getMeta().selectedStage (set in menuV2); falls back to forest for any stage
+// without an entry. Recolors a shared material per planter (see _applyGateBiome).
+const _GATE_BIOME = {
+  forest:   { color: 0x3f7a3a, emissive: 0x4caf50 },  // verdant foliage
+  cave:     { color: 0x1f4a40, emissive: 0x7fffe4 },  // glowmoss (CAVE_PALETTE.moss)
+  twilight: { color: 0x4a3a6a, emissive: 0x9a6fc0 },  // dusk violet
+  cinder:   { color: 0x6a2a16, emissive: 0xff6a28 },  // ember orange
+  void:     { color: 0x2a1840, emissive: 0xc87bff },  // sigil violet
+};
+let _gateBiomeMats = [];   // shared growth materials of the flanking planters
+
 function _matStandard(color, roughness = 0.85, metalness = 0.0) {
   return new THREE.MeshStandardMaterial({ color, roughness, metalness });
 }
@@ -364,6 +378,46 @@ function _makeTownNpc() {
   gem.layers.enable(BLOOM_LAYER);
   g.add(gem);
   return g;
+}
+
+// Gate biome planter (CC6) — a stone urn holding 3 emissive "growth" shards
+// (foliage / crystal / ember, read by recolor). The three shards share ONE
+// material so _applyGateBiome can retint the whole planter in a single write;
+// the material is stashed on userData._growthMat for buildTown to collect.
+function _makeGatePlanter() {
+  const g = new THREE.Group();
+  const urn = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.42, 0.55, 0.7, 10),
+    _matStandard(0x4a4a52, 0.92),
+  );
+  urn.position.y = 0.35;
+  urn.castShadow = true; urn.receiveShadow = true;
+  g.add(urn);
+  const growthMat = new THREE.MeshStandardMaterial({
+    color: _GATE_BIOME.forest.color, emissive: _GATE_BIOME.forest.emissive,
+    emissiveIntensity: 0.9, roughness: 0.6, metalness: 0.05,
+  });
+  for (let i = 0; i < 3; i++) {
+    const a = (i / 3) * Math.PI * 2;
+    const shard = new THREE.Mesh(new THREE.ConeGeometry(0.12, 0.6 + i * 0.12, 6), growthMat);
+    shard.position.set(Math.cos(a) * 0.18, 0.95 + i * 0.06, Math.sin(a) * 0.18);
+    shard.rotation.z = (i - 1) * 0.18;
+    shard.layers.enable(BLOOM_LAYER);
+    g.add(shard);
+  }
+  g.userData._growthMat = growthMat;
+  return g;
+}
+
+// Recolor the gate planters' growth to the selected stage's biome. Falls back
+// to forest for any unmapped stage. Cheap (≤2 material writes) — safe to call
+// every enterTown.
+function _applyGateBiome(stageId) {
+  const b = _GATE_BIOME[stageId] || _GATE_BIOME.forest;
+  for (const mat of _gateBiomeMats) {
+    if (!mat) continue;
+    try { mat.color.setHex(b.color); mat.emissive.setHex(b.emissive); } catch (_) {}
+  }
 }
 
 // Wander the NPC inside the open central plaza (target ring r∈[3,7] from origin
@@ -735,6 +789,19 @@ export function buildTown(scene) {
   // tracks it as it wanders. Head height ~2.0 (above the 1.7 ear tips).
   setSpeakerAnchor(NPC_SPEAKER_ID, { pos: _npc.pos, y: 2.0 });
 
+  // CC6 town cohort 3 — biome gate dressing. Two themed planters flank the
+  // Adventure Gate (z=14) at the approach; their emissive growth recolors to
+  // preview the selected stage's biome. Placed clear of the statue arc (z≈10.5)
+  // and the gate footprint.
+  _gateBiomeMats = [];
+  for (const px of [-3.0, 3.0]) {
+    const planter = _makeGatePlanter();
+    planter.position.set(px, 0, 12.4);
+    g.add(planter);
+    if (planter.userData._growthMat) _gateBiomeMats.push(planter.userData._growthMat);
+  }
+  _applyGateBiome(getMeta().selectedStage);
+
   // ── Character statues — one per CHARACTERS entry, arc'd between hero
   // spawn (z=6) and the Adventure Gate (z=14). Player walks through them
   // on the way to the gate so character pick is the natural pre-run beat.
@@ -858,6 +925,9 @@ export function enterTown() {
   // entry (visits 2+ get the "back again" variant). The counter was just bumped
   // above, so the variant reflects this visit.
   if (_npc) { _npc.firstBarkDone = false; _npc.nextBarkAt = 0; }
+  // Refresh gate biome dressing — selectedStage may have changed since the last
+  // town visit (stage is picked in menuV2).
+  try { _applyGateBiome(getMeta().selectedStage); } catch (_) {}
   // Spawn just inside the plaza, facing the gate
   state.hero.pos.set(0, 0, 6);
   state.hero.vel.set(0, 0, 0);
