@@ -53,7 +53,7 @@ import { tryAchievement, trySecret, showBanner } from './ui.js';
 // import() here. damageEnemy + killEnemy fire 100+ times/frame on borgir
 // salvos; dynamic-import microtasks would crater FPS (see memory
 // feedback_kks_dynamic_import_hotpath).
-import { spawnSprite, moveSprite, killSprite } from './sprites/index.js';
+import { spawnSprite, moveSprite, killSprite, setSpriteFlash } from './sprites/index.js';
 // PHASE 1 P1E (2026-05-17) — boss intro cinematic trigger. Static import:
 // triggerBossIntro is a cheap no-op when the tier has already fired this run,
 // so calling it on every spawn is safe. Roomboss tier is detected by the
@@ -99,6 +99,11 @@ const _SPRITE_KEYS = new Set([
   'grasshopper', 'cockroach', 'mantis', 'wasp', 'bee', 'butterfly', 'caterpillar',
 ]);
 const _anchorPool = [];   // reusable empty Object3D anchors for sprite enemies
+// Hit-flash white-mix strength for billboard (sprite) enemies (CC4). < 1 so the
+// silhouette stays legible mid-swarm; the 3D path flashes emissive white (1.6
+// intensity) — this is the unlit-sprite analog. Sole blind-tune knob for the
+// sprite flash (no cave/forest screenshot gate); nudge here.
+const SPRITE_FLASH_STRENGTH = 0.85;
 
 // Free a dead/retired enemy's visual + recycle its mesh into the right pool.
 // Sprite enemies: kill the billboard slot + recycle the bare anchor (must NOT
@@ -1476,6 +1481,17 @@ export function updateEnemies(dt) {
             fm.mat.emissiveIntensity = fm.origIntensity;
           }
         }
+        e._wasFlashing = isFlashing;
+      }
+    } else if (e._isSprite && e._spriteSlot >= 0) {
+      // Billboard parity (CC4): the sprite atlas has no per-mesh emissive, so
+      // flash the instance white via the pool's per-instance aFlash attribute.
+      // Edge-triggered exactly like the 3D path above — one write per flash
+      // transition, so the no-hit case stays zero-cost. Strength < 1 keeps the
+      // silhouette legible mid-swarm (the one blind-tune knob; nudge here).
+      const isFlashing = e._flashUntil && _now < e._flashUntil;
+      if (isFlashing !== e._wasFlashing) {
+        try { setSpriteFlash('enemies', e._spriteSlot, isFlashing ? SPRITE_FLASH_STRENGTH : 0); } catch (_) {}
         e._wasFlashing = isFlashing;
       }
     }

@@ -61,6 +61,13 @@ export function ensurePool(scene, atlasId, cap = DEFAULT_POOL_CAP, opts = {}) {
   const scaleAttr = new THREE.InstancedBufferAttribute(new Float32Array(cap), 1);
   scaleAttr.setUsage(THREE.DynamicDrawUsage);
   geom.setAttribute('aScale', scaleAttr);
+  // Per-instance hit-flash amount (0 = normal, 1 = full white). Drives the FS
+  // white-mix so a billboard mob flashes on hit at parity with the 3D enemies'
+  // emissive flash (src/enemies.js flashMats path). Default 0 → fully inert for
+  // FX atlases that never call setSpriteFlash.
+  const flashAttr = new THREE.InstancedBufferAttribute(new Float32Array(cap), 1);
+  flashAttr.setUsage(THREE.DynamicDrawUsage);
+  geom.setAttribute('aFlash', flashAttr);
 
   const aspect = atlas.frameWidth / atlas.frameHeight;
   const billboardMode = atlas.billboard === 'cylinder' ? 1
@@ -112,6 +119,7 @@ export function ensurePool(scene, atlasId, cap = DEFAULT_POOL_CAP, opts = {}) {
     cap,
     frameAttr,
     scaleAttr,
+    flashAttr,
     bypassWhenLowFx: !!opts.bypassWhenLowFx,
     // Per-slot state — flat arrays for cache-friendly tick.
     sX:     new Float32Array(cap),
@@ -188,9 +196,15 @@ export function spawnSprite(atlasId, opts) {
   pool.mesh.setMatrixAt(slot, pool._matrix);
   pool.frameAttr.array[slot] = anim.from;
   pool.scaleAttr.array[slot] = scale;
+  // Clear any stale flash — the evict-oldest recycle path can hand back a slot
+  // that was mid-flash (0.85) when its previous occupant was reused. The
+  // edge-triggered caller won't re-zero it (no transition fires on a fresh
+  // entity), so reset here unconditionally.
+  pool.flashAttr.array[slot] = 0;
   pool.mesh.instanceMatrix.needsUpdate = true;
   pool.frameAttr.needsUpdate = true;
   pool.scaleAttr.needsUpdate = true;
+  pool.flashAttr.needsUpdate = true;
   return slot;
 }
 
@@ -226,8 +240,26 @@ export function killSprite(atlasId, slot) {
   if (!pool || slot < 0 || slot >= pool.cap) return;
   if (pool.sAlive[slot] === 0) return;
   pool.sAlive[slot] = 0;
+  // Clear flash before stashing so the next occupant of this slot (via the
+  // stashed-slot spawn branch) doesn't inherit a mid-flash value.
+  pool.flashAttr.array[slot] = 0;
+  pool.flashAttr.needsUpdate = true;
   pool.mesh.setMatrixAt(slot, pool._stashMatrix);
   pool.mesh.instanceMatrix.needsUpdate = true;
+}
+
+/**
+ * Set a slot's hit-flash amount (0 = normal … 1 = full white). Drives the
+ * fragment shader's white-mix. Intended to be edge-triggered by the caller
+ * (one write per flash transition, see src/enemies.js sprite branch). No-op
+ * for dead/unknown slots.
+ */
+export function setSpriteFlash(atlasId, slot, amount) {
+  const pool = _pools.get(atlasId);
+  if (!pool || slot < 0 || slot >= pool.cap) return;
+  if (pool.sAlive[slot] === 0) return;
+  pool.flashAttr.array[slot] = amount;
+  pool.flashAttr.needsUpdate = true;
 }
 
 export function tickSpriteSystem(dt) {
@@ -290,14 +322,17 @@ const _VS = /* glsl */`
   precision highp float;
   attribute float aFrame;
   attribute float aScale;
+  attribute float aFlash;
   uniform float uCols;
   uniform float uRows;
   uniform float uAspect;
   uniform int   uBillboard; // 0=screen, 1=cylinder, 2=none
   uniform vec2  uAnchor;
   varying vec2  vUv;
+  varying float vFlash;
 
   void main() {
+    vFlash = aFlash;
     // Per-frame UV offset (row-major, top-left origin in atlas convention).
     float f    = aFrame;
     float col  = mod(f, uCols);
@@ -345,9 +380,12 @@ const _FS = /* glsl */`
   uniform sampler2D uMap;
   uniform float uAlphaTest;
   varying vec2 vUv;
+  varying float vFlash;
   void main() {
     vec4 c = texture2D(uMap, vUv);
     if (c.a < uAlphaTest) discard;
-    gl_FragColor = c;
+    // Hit-flash: lerp the lit texel toward white by the per-instance amount
+    // (0 = untinted). Alpha is preserved so the cutout silhouette is unchanged.
+    gl_FragColor = vec4(mix(c.rgb, vec3(1.0), clamp(vFlash, 0.0, 1.0)), c.a);
   }
 `;

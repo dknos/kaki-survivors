@@ -17,6 +17,7 @@ export {
   spawnSprite,
   moveSprite,
   killSprite,
+  setSpriteFlash,
   tickSpriteSystem,
   disposeSpritePools,
   setLowFxProbe,
