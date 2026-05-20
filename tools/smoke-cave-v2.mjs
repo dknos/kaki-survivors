@@ -532,6 +532,46 @@ async function main() {
     }, p6before);
     console.log('phase 6 (gloomshrimp): ' + (p6.ok ? 'PASS' : 'FAIL') + ' — ' + p6.reason);
 
+    // ── Phase 7 (P4A cohort 6) — Cave achievements ───────────────────────
+    // Three assertions:
+    //   (a) All 5 cave_* defs are registered into the shared achievement
+    //       registry (window.__kkAchievements.list() — exposed by
+    //       forestAchievements.js) — proves loadCaveAchievements ran.
+    //   (b) isUnlocked('cave_enter') === true — proves tickCaveAchievements
+    //       is frame-wired through tickCave on the live cave run (the whole
+    //       chain), not just registered.
+    //   (c) Funnel + per-run idempotency: unlocking a not-yet-fired id
+    //       (cave_clear) returns a def the first time + reads back unlocked,
+    //       and a second unlock in the same run is a no-op (null).
+    const p7 = await page.evaluate(() => {
+      const A = window.__kkAchievements;
+      if (!A || typeof A.list !== 'function') {
+        return { ok: false, reason: 'window.__kkAchievements probe missing' };
+      }
+      const ids = new Set(A.list().map((d) => d.id));
+      const want = ['cave_enter', 'cave_gloomshrimp', 'cave_time_10min', 'cave_clear', 'cave_flawless_3min'];
+      const missing = want.filter((id) => !ids.has(id));
+      if (missing.length) {
+        return { ok: false, reason: 'cave defs not registered: ' + missing.join(',') };
+      }
+      // (b) frame-wired unlock
+      if (!A.isUnlocked('cave_enter')) {
+        return { ok: false, reason: 'cave_enter not unlocked — tickCaveAchievements not frame-wired' };
+      }
+      // (c) funnel + idempotency on a fresh id
+      const first = A.unlock('cave_clear');
+      const unlockedAfter = A.isUnlocked('cave_clear');
+      const second = A.unlock('cave_clear');
+      if (!first) return { ok: false, reason: 'unlock(cave_clear) returned falsy on first call' };
+      if (!unlockedAfter) return { ok: false, reason: 'cave_clear not marked unlocked after unlock()' };
+      if (second) return { ok: false, reason: 'unlock(cave_clear) re-fired in same run (expected null) — dedup broken' };
+      return {
+        ok: true,
+        reason: 'registered ' + want.length + ' cave defs, cave_enter auto-unlocked, funnel idempotent',
+      };
+    });
+    console.log('phase 7 (cave achievements): ' + (p7.ok ? 'PASS' : 'FAIL') + ' — ' + p7.reason);
+
     // ── Summary ───────────────────────────────────────────────────────────
     const runtimeSec = ((Date.now() - t0) / 1000).toFixed(1);
 
@@ -542,21 +582,22 @@ async function main() {
     console.log('phase 4 (glowmoss + ground pack):' + (p4.ok  ? 'PASS' : 'FAIL'));
     console.log('phase 5 (ceiling drips):         ' + (p5.ok  ? 'PASS' : 'FAIL'));
     console.log('phase 6 (gloomshrimp):           ' + (p6.ok  ? 'PASS' : 'FAIL'));
+    console.log('phase 7 (cave achievements):     ' + (p7.ok  ? 'PASS' : 'FAIL'));
     console.log('runtime: ' + runtimeSec + 's');
     console.log('console.errors:  ' + consoleErrors.length);
     for (const e of consoleErrors) console.log('  - ' + e);
     console.log('pageerrors:      ' + pageErrors.length);
     for (const e of pageErrors) console.log('  - ' + e);
 
-    const hardFail = !p1Pass || !p2.ok || !p3.ok || !p4.ok || !p5.ok || !p6.ok || pageErrors.length > 0;
+    const hardFail = !p1Pass || !p2.ok || !p3.ok || !p4.ok || !p5.ok || !p6.ok || !p7.ok || pageErrors.length > 0;
     if (hardFail) {
       console.error('[smoke-cave] FAIL — phases='
-                    + (p1Pass?1:0) + (p2.ok?1:0) + (p3.ok?1:0) + (p4.ok?1:0) + (p5.ok?1:0) + (p6.ok?1:0)
+                    + (p1Pass?1:0) + (p2.ok?1:0) + (p3.ok?1:0) + (p4.ok?1:0) + (p5.ok?1:0) + (p6.ok?1:0) + (p7.ok?1:0)
                     + ' pageerrors=' + pageErrors.length);
       exitCode = 1;
     } else {
-      console.log('[smoke-cave] OK — cohort 5 phases 1+2+3+4+5+6 passed');
-      console.log('[smoke-cave] cohort 6…N will add rooms / boss / reaper / weapons '
+      console.log('[smoke-cave] OK — cohort 6 phases 1+2+3+4+5+6+7 passed');
+      console.log('[smoke-cave] cohort 7…N will add rooms / boss / reaper / weapons '
                   + '— see docs/STAGE_AUTHORING.md §7');
     }
   } catch (e) {

@@ -40,6 +40,7 @@ import { buildStalactiteCluster, disposeStalactites } from './caveStalactites.js
 import { buildGlowmossPatches, disposeGlowmoss, tickGlowmoss } from './caveGlowmoss.js';
 import { buildCeilingDrips, disposeCeilingDrips, tickCeilingDrips } from './caveCeilingDrips.js';
 import { buildGloomshrimp, disposeGloomshrimp, tickGloomshrimp } from './caveGloomshrimp.js';
+import { loadCaveAchievements, tickCaveAchievements } from '../../caveAchievements.js';
 
 const STAGE_GROUP_NAME = 'caveStage';
 
@@ -128,6 +129,15 @@ export function buildCaveStage(scene) {
   }
   group.userData.gloomshrimpCount = shrimpCount;
 
+  // P4A cohort 6: register cave-specific achievements into the shared registry
+  // (docs/STAGE_AUTHORING.md §8d). Eligibility is scanned in tickCave via
+  // tickCaveAchievements — no main.js edit. Idempotent.
+  try {
+    loadCaveAchievements();
+  } catch (e) {
+    console.warn('[caveStage] loadCaveAchievements failed:', e);
+  }
+
   scene.add(group);
   _group = group;
   return group;
@@ -147,6 +157,7 @@ export function tickCave(dt) {
   tickGlowmoss(dt);
   tickCeilingDrips(dt);   // P4A cohort 4 — gravity-fall + landing fade + recycle
   tickGloomshrimp(dt);    // P4A cohort 5 — drift + hero-flee swim
+  tickCaveAchievements(); // P4A cohort 6 — cave-only achievement eligibility
 }
 
 /**

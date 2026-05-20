@@ -78,6 +78,29 @@ const ACH_DEFS = [
 const ACH_BY_ID = {};
 for (const def of ACH_DEFS) ACH_BY_ID[def.id] = def;
 
+/**
+ * Register stage-specific achievement defs into this shared registry so they
+ * flow through the same unlock → toast → meta → title-panel pipeline. The
+ * per-stage achievement-file pattern (docs/STAGE_AUTHORING.md §8d): a stage
+ * module owns its defs + its eligibility checks, then calls this once at load
+ * to make `unlockAchievement(id)` resolve those ids. Idempotent per id —
+ * re-registering an existing id is a no-op. Categories should reuse the
+ * existing modal `order` set (Kills/Bosses/Exploration/Progression/Mastery/
+ * Survival) so they render in the title-screen panel without further wiring.
+ * Returns the number of newly-added defs.
+ */
+export function registerExternalAchievements(defs) {
+  if (!Array.isArray(defs)) return 0;
+  let added = 0;
+  for (const def of defs) {
+    if (!def || !def.id || ACH_BY_ID[def.id]) continue;
+    ACH_DEFS.push(def);
+    ACH_BY_ID[def.id] = def;
+    added++;
+  }
+  return added;
+}
+
 // Evolved-weapon ids — anything in this list satisfies weapon_evolved.
 // Mirrors the FOREST_SPECIAL_IDS subset that represents coffin-evolved
 // superweapons (chain_storm, frost_eternal). Inst.evolved is also checked.

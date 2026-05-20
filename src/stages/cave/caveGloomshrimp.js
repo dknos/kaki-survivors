@@ -202,6 +202,8 @@ export function tickGloomshrimp(dt) {
         _heading[i] = Math.atan2(nx, nz);   // face away from hero
         _fleeT[i] = FLEE_DUR;
         speed = FLEE_SPEED;
+        // Cohort-6 achievement tie-in: first startle flags cave_gloomshrimp.
+        if (_gameState.run) _gameState.run._caveShrimpStartled = true;
       }
     }
 
