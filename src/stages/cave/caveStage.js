@@ -41,6 +41,7 @@ import { buildGlowmossPatches, disposeGlowmoss, tickGlowmoss } from './caveGlowm
 import { buildCeilingDrips, disposeCeilingDrips, tickCeilingDrips } from './caveCeilingDrips.js';
 import { buildGloomshrimp, disposeGloomshrimp, tickGloomshrimp } from './caveGloomshrimp.js';
 import { buildCaveStalagmites, disposeCaveStalagmites } from './caveStalagmites.js';
+import { buildCaveMushrooms, disposeCaveMushrooms } from './caveMushrooms.js';
 import { loadCaveAchievements, tickCaveAchievements } from '../../caveAchievements.js';
 
 const STAGE_GROUP_NAME = 'caveStage';
@@ -144,6 +145,19 @@ export function buildCaveStage(scene) {
   }
   group.userData.stalagmiteCount = stalagCount;
 
+  // P4A cohort 10: glowmoss mushroom clusters at the feet of the cohort-9
+  // stalagmites (r≈30-38). Two-tone (slot-2 stalk + slot-3 emissive cap),
+  // perimeter-only so a vertical slot-3 glow never enters the pickup band.
+  // Static decor (no tick). Records the count for the smoke phase 11 probe.
+  let mushroomCount = 0;
+  try {
+    const built = buildCaveMushrooms(group);
+    mushroomCount = built && built.count ? built.count : 0;
+  } catch (e) {
+    console.warn('[caveStage] buildCaveMushrooms failed:', e);
+  }
+  group.userData.mushroomCount = mushroomCount;
+
   // P4A cohort 6: register cave-specific achievements into the shared registry
   // (docs/STAGE_AUTHORING.md §8d). Eligibility is scanned in tickCave via
   // tickCaveAchievements — no main.js edit. Idempotent.
@@ -200,6 +214,9 @@ export function disposeCaveStage(scene) {
   // Stalagmites (cohort 9) own their InstancedMesh geo+mat+textures; idempotent
   // + self-detaching — drop before the group traverse to avoid double-dispose.
   try { disposeCaveStalagmites(); } catch (_) {}
+  // Mushrooms (cohort 10) own their two InstancedMesh geo+mat; idempotent +
+  // self-detaching — drop before the group traverse to avoid double-dispose.
+  try { disposeCaveMushrooms(); } catch (_) {}
   // Detach the stage group itself so traversal doesn't race with re-add.
   if (_group.parent) _group.parent.remove(_group);
   _group.traverse((o) => {

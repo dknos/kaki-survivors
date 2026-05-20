@@ -700,6 +700,70 @@ async function main() {
     });
     console.log('phase 10 (stalagmites): ' + (p10.ok ? 'PASS' : 'FAIL') + ' — ' + p10.reason);
 
+    // ── Phase 11 (P4A cohort 10) — Perimeter glowmoss mushrooms ───────────
+    // Six assertions (the perimeter + no-slot-3-leak ones are the pickup-
+    // confusion guards — see caveMushrooms.js header):
+    //   (a) caveStage.userData.mushroomCount >= 24 — guards a no-op builder.
+    //   (b) Both InstancedMeshes mounted (stalks + caps).
+    //   (c) Stalk material color === CAVE_PALETTE.stone (0x4a4a52) — NO slot-3
+    //       leak into the stalk; the silhouette is what disambiguates a
+    //       mushroom from a glowing pickup.
+    //   (d) Cap emissive === slot-3 moss (0x7fffe4) + cap bloom-tagged.
+    //   (e) Every instance r >= 27 (perimeter — if this ever fails a tweak has
+    //       put emissive flora back in the pickup band).
+    //   (f) Cap center-Y <= 0.9 (undergrowth, not a competing silhouette).
+    const p11 = await page.evaluate(() => {
+      const s = window.kkState;
+      if (!s || !s.scene) return { ok: false, reason: 'kkState/scene missing' };
+      const cg = s.scene.getObjectByName('caveStage');
+      if (!cg) return { ok: false, reason: 'caveStage group missing' };
+      const n = (cg.userData && cg.userData.mushroomCount) | 0;
+      if (n < 24) return { ok: false, reason: 'mushroomCount=' + n + ' (expected >=24)' };
+      const grp = cg.getObjectByName('caveStage_mushrooms_grp');
+      if (!grp) return { ok: false, reason: 'caveStage_mushrooms_grp missing', count: n };
+      const stalk = grp.getObjectByName('caveStage_mushroomStalks');
+      const cap   = grp.getObjectByName('caveStage_mushroomCaps');
+      if (!stalk || !cap) return { ok: false, reason: 'mushroom stalk/cap InstancedMesh missing', count: n };
+      // (c) Stalk is slot-2 stone, NOT slot-3 (no pickup-glow leak).
+      const stalkHex = (stalk.material && stalk.material.color && stalk.material.color.getHex)
+        ? stalk.material.color.getHex() : -1;
+      if (stalkHex !== 0x4a4a52) {
+        return { ok: false, reason: 'stalk color=0x' + stalkHex.toString(16) + ' (expected 0x4a4a52 slot-2 stone, no slot-3 leak)', count: n };
+      }
+      // (d) Cap emissive slot-3 + bloom.
+      const capEm = (cap.material && cap.material.emissive && cap.material.emissive.getHex)
+        ? cap.material.emissive.getHex() : -1;
+      if (capEm !== 0x7fffe4) {
+        return { ok: false, reason: 'cap emissive=0x' + capEm.toString(16) + ' (expected 0x7fffe4 slot-3 moss)', count: n };
+      }
+      const capBloom = cap.layers && typeof cap.layers.mask === 'number'
+        ? (cap.layers.mask & (1 << 1)) !== 0 : false;
+      if (!capBloom) return { ok: false, reason: 'mushroom caps not bloom-tagged', count: n };
+      // (e) + (f) Placement invariants from the stalk + cap matrices.
+      const sa = stalk.instanceMatrix.array;
+      const ca = cap.instanceMatrix.array;
+      let minR = Infinity, maxCapY = -Infinity;
+      for (let i = 0; i < n; i++) {
+        const o = i * 16;
+        const r = Math.sqrt(sa[o + 12] * sa[o + 12] + sa[o + 14] * sa[o + 14]);
+        if (r < minR) minR = r;
+        if (ca[o + 13] > maxCapY) maxCapY = ca[o + 13];
+      }
+      if (!(minR >= 27)) {
+        return { ok: false, reason: 'a mushroom is inside the pickup band (minR=' + minR.toFixed(1) + ', expected >=27)', count: n };
+      }
+      if (!(maxCapY <= 0.9)) {
+        return { ok: false, reason: 'mushroom cap too tall (maxCapY=' + maxCapY.toFixed(2) + ', expected <=0.9 undergrowth)', count: n };
+      }
+      return {
+        ok: true,
+        reason: 'mushroomCount=' + n + ', stalk slot-2 / cap slot-3+bloom, minR='
+              + minR.toFixed(1) + ', maxCapY=' + maxCapY.toFixed(2),
+        count: n, minR, maxCapY,
+      };
+    });
+    console.log('phase 11 (mushrooms): ' + (p11.ok ? 'PASS' : 'FAIL') + ' — ' + p11.reason);
+
     // ── Summary ───────────────────────────────────────────────────────────
     const runtimeSec = ((Date.now() - t0) / 1000).toFixed(1);
 
@@ -714,21 +778,22 @@ async function main() {
     console.log('phase 8 (gloomsigil gate):       ' + (p8.ok  ? 'PASS' : 'FAIL'));
     console.log('phase 9 (echobolt gate):         ' + (p9.ok  ? 'PASS' : 'FAIL'));
     console.log('phase 10 (stalagmites):          ' + (p10.ok ? 'PASS' : 'FAIL'));
+    console.log('phase 11 (mushrooms):            ' + (p11.ok ? 'PASS' : 'FAIL'));
     console.log('runtime: ' + runtimeSec + 's');
     console.log('console.errors:  ' + consoleErrors.length);
     for (const e of consoleErrors) console.log('  - ' + e);
     console.log('pageerrors:      ' + pageErrors.length);
     for (const e of pageErrors) console.log('  - ' + e);
 
-    const hardFail = !p1Pass || !p2.ok || !p3.ok || !p4.ok || !p5.ok || !p6.ok || !p7.ok || !p8.ok || !p9.ok || !p10.ok || pageErrors.length > 0;
+    const hardFail = !p1Pass || !p2.ok || !p3.ok || !p4.ok || !p5.ok || !p6.ok || !p7.ok || !p8.ok || !p9.ok || !p10.ok || !p11.ok || pageErrors.length > 0;
     if (hardFail) {
       console.error('[smoke-cave] FAIL — phases='
-                    + (p1Pass?1:0) + (p2.ok?1:0) + (p3.ok?1:0) + (p4.ok?1:0) + (p5.ok?1:0) + (p6.ok?1:0) + (p7.ok?1:0) + (p8.ok?1:0) + (p9.ok?1:0) + (p10.ok?1:0)
+                    + (p1Pass?1:0) + (p2.ok?1:0) + (p3.ok?1:0) + (p4.ok?1:0) + (p5.ok?1:0) + (p6.ok?1:0) + (p7.ok?1:0) + (p8.ok?1:0) + (p9.ok?1:0) + (p10.ok?1:0) + (p11.ok?1:0)
                     + ' pageerrors=' + pageErrors.length);
       exitCode = 1;
     } else {
-      console.log('[smoke-cave] OK — cohort 9 phases 1..10 passed');
-      console.log('[smoke-cave] cohort 10…N will add rooms / boss / reaper '
+      console.log('[smoke-cave] OK — cohort 10 phases 1..11 passed');
+      console.log('[smoke-cave] cohort 11…N will add rooms / boss / reaper '
                   + '— see docs/STAGE_AUTHORING.md §7');
     }
   } catch (e) {
