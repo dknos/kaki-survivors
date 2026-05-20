@@ -42,6 +42,8 @@ function isCoarsePointer() {
   try {
     _coarse = (typeof window !== 'undefined' && window.matchMedia
       && window.matchMedia('(pointer: coarse)').matches)
+      || (navigator.maxTouchPoints > 0)
+      || ('ontouchstart' in window)
       || /[?&]touch=1/.test(location.search);
   } catch (_) { _coarse = false; }
   return _coarse;

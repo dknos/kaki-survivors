@@ -182,8 +182,15 @@ const stage = document.getElementById('kk-stage');
 // Desktop ultrawide stays capped at 16:9 (user's pick — tames 32:9 panels).
 // Touch devices (phones) get 21:9 so a landscape S24 (~19.5:9) fills edge to
 // edge instead of sitting in fat side bars at the 16:9 cap.
-const _coarsePointer = typeof window !== 'undefined'
-  && window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
+// Robust touch detection — `(pointer: coarse)` alone returned false on a real
+// S24 (some Android browsers misreport), so also honor touch-point count /
+// touch events. `?touch=1` forces it for the headless smoke test.
+const _coarsePointer = typeof window !== 'undefined' && (
+  (window.matchMedia && window.matchMedia('(pointer: coarse)').matches)
+  || (navigator.maxTouchPoints > 0)
+  || ('ontouchstart' in window)
+  || /[?&]touch=1/.test(location.search)
+);
 const MAX_ASPECT = _coarsePointer ? 21 / 9 : 16 / 9;
 function computeStage() {
   const vw = window.innerWidth, vh = window.innerHeight;

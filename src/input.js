@@ -149,6 +149,8 @@ function isCoarsePointer() {
   if (_coarse !== null) return _coarse;
   try {
     _coarse = (window.matchMedia && window.matchMedia('(pointer: coarse)').matches)
+      || (navigator.maxTouchPoints > 0)
+      || ('ontouchstart' in window)
       || /[?&]touch=1/.test(location.search);
   } catch (_) { _coarse = false; }
   return _coarse;
