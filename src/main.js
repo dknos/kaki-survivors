@@ -179,7 +179,12 @@ const stage = document.getElementById('kk-stage');
 // bars. W/H below are the STAGE dimensions, not the window — the ortho camera
 // aspect, renderer buffer, and all fixed UI overlays key off these so nothing
 // stretches on a 32:9 panel. See index.html#kk-stage for the CSS contract.
-const MAX_ASPECT = 16 / 9;
+// Desktop ultrawide stays capped at 16:9 (user's pick — tames 32:9 panels).
+// Touch devices (phones) get 21:9 so a landscape S24 (~19.5:9) fills edge to
+// edge instead of sitting in fat side bars at the 16:9 cap.
+const _coarsePointer = typeof window !== 'undefined'
+  && window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
+const MAX_ASPECT = _coarsePointer ? 21 / 9 : 16 / 9;
 function computeStage() {
   const vw = window.innerWidth, vh = window.innerHeight;
   let w, h;

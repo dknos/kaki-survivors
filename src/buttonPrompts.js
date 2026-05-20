@@ -34,6 +34,19 @@ const MAP = {
 
 const KBM_FALLBACK = { kbm: '?', pad: '?', padTint: KBM_TINT };
 
+// Coarse pointer (phone/tablet). `?touch=1` forces it for the headless smoke
+// test. Mirrors the helper in input.js.
+let _coarse = null;
+function isCoarsePointer() {
+  if (_coarse !== null) return _coarse;
+  try {
+    _coarse = (typeof window !== 'undefined' && window.matchMedia
+      && window.matchMedia('(pointer: coarse)').matches)
+      || /[?&]touch=1/.test(location.search);
+  } catch (_) { _coarse = false; }
+  return _coarse;
+}
+
 // ── Device detection ────────────────────────────────────────────────────────
 /**
  * Returns 'kbm' or 'gamepad' based on the active device. Prefers
@@ -136,6 +149,20 @@ export function bindPrompt(el, action, labelOrFn) {
   const entry = { el, action, getLabel };
   _live.add(entry);
   _renderEntry(entry);
+  // Touch: the contextual interact prompt is already shown/hidden by proximity
+  // (scene code toggles its display), so making it tappable gives mobile the
+  // interact action with no persistent on-screen button — it "fades" when no
+  // interactable is in range. Synthesizes the KeyE the scene handlers listen for.
+  if (action === 'interact' && isCoarsePointer() && !el.__kkTapBound) {
+    el.__kkTapBound = true;
+    el.style.pointerEvents = 'auto';
+    el.style.cursor = 'pointer';
+    el.addEventListener('touchstart', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyE', key: 'e' }));
+    }, { passive: false });
+  }
   return entry;
 }
 
@@ -202,6 +229,13 @@ const _legendItems = [
  */
 export function mountLegend(parent) {
   ensureStyles();
+  // Touch: the persistent kbm-glyph legend ("[E] Interact [Space] Dash [P] Pause")
+  // is the on-screen clutter the user flagged — its glyphs are unpressable on a
+  // phone. Interact is contextual (bindPrompt) and jump has its own touch button.
+  if (isCoarsePointer()) {
+    if (_legendEl) _legendEl.style.display = 'none';
+    return _legendEl;
+  }
   if (!_legendEl) {
     _legendEl = document.createElement('div');
     _legendEl.className = 'kk-prompt-legend';

@@ -141,6 +141,19 @@ const TOUCH_MAX_RADIUS = 60;
 
 let _initialized = false;
 
+// Coarse pointer (phone/tablet) detection. `?touch=1` forces the path so the
+// headless smoke test can exercise the touch branch (matchMedia coarse stays
+// false under Playwright even with hasTouch).
+let _coarse = null;
+function isCoarsePointer() {
+  if (_coarse !== null) return _coarse;
+  try {
+    _coarse = (window.matchMedia && window.matchMedia('(pointer: coarse)').matches)
+      || /[?&]touch=1/.test(location.search);
+  } catch (_) { _coarse = false; }
+  return _coarse;
+}
+
 export function initInput() {
   if (_initialized) return;
   _initialized = true;
@@ -257,6 +270,35 @@ export function initInput() {
   window.addEventListener('touchend', (e) => {
     if (e.touches.length < 2) _pinchStartDist = 0;
   });
+
+  // ── Touch jump button (coarse pointer only) ──
+  // Mobile has no keyboard Space, so the hero hop was unreachable. One fixed
+  // round button bottom-right (right half — clear of the left-half joystick).
+  if (isCoarsePointer()) {
+    const jumpBtn = document.createElement('div');
+    jumpBtn.id = 'kk-touch-jump';
+    jumpBtn.textContent = '⤴';
+    jumpBtn.setAttribute('aria-label', 'Jump');
+    jumpBtn.style.cssText = `
+      position: fixed; right: 24px; bottom: 24px; z-index: 90;
+      width: 76px; height: 76px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      background: radial-gradient(circle at 50% 35%, rgba(40,52,44,0.92), rgba(10,16,13,0.95));
+      border: 2px solid rgba(255,210,127,0.5);
+      color: #ffd27f; font-size: 34px; line-height: 1; user-select: none;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.5), 0 0 16px rgba(255,210,127,0.2);
+      touch-action: none; transition: transform 0.09s ease;
+    `;
+    const fire = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      _jumpQueued = true;
+      jumpBtn.style.transform = 'scale(0.9)';
+      setTimeout(() => { jumpBtn.style.transform = ''; }, 90);
+    };
+    jumpBtn.addEventListener('touchstart', fire, { passive: false });
+    document.body.appendChild(jumpBtn);
+  }
 }
 
 export function sampleInput() {
