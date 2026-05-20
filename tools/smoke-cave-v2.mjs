@@ -642,6 +642,64 @@ async function main() {
     });
     console.log('phase 9 (echobolt gate): ' + (p9.ok ? 'PASS' : 'FAIL') + ' — ' + p9.reason);
 
+    // ── Phase 10 (P4A cohort 9) — Perimeter stalagmite formations ─────────
+    // Five assertions:
+    //   (a) caveStage.userData.stalagmiteCount >= 24 — guards the builder
+    //       silently no-op'ing. Cohort 9 author-places 8×4 = 32.
+    //   (b) InstancedMesh `caveStage_stalagmites` mounted under its group.
+    //   (c) Material is STONE-TEXTURED: map + normalMap both truthy. This is
+    //       the "stone wall textures" acceptance proof (not flat placeholder).
+    //   (d) Material color === CAVE_PALETTE.stone (0x4a4a52). The diffuse PNG
+    //       is palette-locked grayscale; default-white would render a gray
+    //       photograph instead of wet stone (silent ugly-fail per advisor).
+    //   (e) Placement invariants from the instance matrices: every instance
+    //       sits at r >= 27 (clear of the r<=26 decor footprint → perimeter)
+    //       AND its center-Y stays low enough that the tip (≈2×centerY) clears
+    //       the iso sightline (occlusion guard: centerY <= 3.0 → tip <= ~6).
+    const p10 = await page.evaluate(() => {
+      const s = window.kkState;
+      if (!s || !s.scene) return { ok: false, reason: 'kkState/scene missing' };
+      const cg = s.scene.getObjectByName('caveStage');
+      if (!cg) return { ok: false, reason: 'caveStage group missing' };
+      const n = (cg.userData && cg.userData.stalagmiteCount) | 0;
+      if (n < 24) return { ok: false, reason: 'stalagmiteCount=' + n + ' (expected >=24)' };
+      const grp = cg.getObjectByName('caveStage_stalagmites_grp');
+      if (!grp) return { ok: false, reason: 'caveStage_stalagmites_grp missing', count: n };
+      const inst = grp.getObjectByName('caveStage_stalagmites');
+      if (!inst) return { ok: false, reason: 'stalagmites InstancedMesh missing', count: n };
+      const mat = inst.material;
+      if (!mat || !mat.map || !mat.normalMap) {
+        return { ok: false, reason: 'stalagmite material not stone-textured (map/normalMap missing)', count: n };
+      }
+      const colHex = (mat.color && mat.color.getHex) ? mat.color.getHex() : -1;
+      if (colHex !== 0x4a4a52) {
+        return { ok: false, reason: 'stalagmite color=0x' + colHex.toString(16) + ' (expected 0x4a4a52 slot-2 stone)', count: n };
+      }
+      // Placement invariants from the instance matrices (translation = last col).
+      const a = inst.instanceMatrix.array;
+      let minR = Infinity, maxY = -Infinity;
+      for (let i = 0; i < n; i++) {
+        const off = i * 16;
+        const x = a[off + 12], y = a[off + 13], z = a[off + 14];
+        const r = Math.sqrt(x * x + z * z);
+        if (r < minR) minR = r;
+        if (y > maxY) maxY = y;
+      }
+      if (!(minR >= 27)) {
+        return { ok: false, reason: 'a stalagmite is inside the decor footprint (minR=' + minR.toFixed(1) + ', expected >=27)', count: n };
+      }
+      if (!(maxY <= 3.0)) {
+        return { ok: false, reason: 'stalagmite too tall (maxCenterY=' + maxY.toFixed(2) + ' → tip>~6, occlusion risk)', count: n };
+      }
+      return {
+        ok: true,
+        reason: 'stalagmiteCount=' + n + ', stone-textured (map+normalMap), color=0x4a4a52, minR='
+              + minR.toFixed(1) + ', maxCenterY=' + maxY.toFixed(2),
+        count: n, minR, maxY,
+      };
+    });
+    console.log('phase 10 (stalagmites): ' + (p10.ok ? 'PASS' : 'FAIL') + ' — ' + p10.reason);
+
     // ── Summary ───────────────────────────────────────────────────────────
     const runtimeSec = ((Date.now() - t0) / 1000).toFixed(1);
 
@@ -655,21 +713,22 @@ async function main() {
     console.log('phase 7 (cave achievements):     ' + (p7.ok  ? 'PASS' : 'FAIL'));
     console.log('phase 8 (gloomsigil gate):       ' + (p8.ok  ? 'PASS' : 'FAIL'));
     console.log('phase 9 (echobolt gate):         ' + (p9.ok  ? 'PASS' : 'FAIL'));
+    console.log('phase 10 (stalagmites):          ' + (p10.ok ? 'PASS' : 'FAIL'));
     console.log('runtime: ' + runtimeSec + 's');
     console.log('console.errors:  ' + consoleErrors.length);
     for (const e of consoleErrors) console.log('  - ' + e);
     console.log('pageerrors:      ' + pageErrors.length);
     for (const e of pageErrors) console.log('  - ' + e);
 
-    const hardFail = !p1Pass || !p2.ok || !p3.ok || !p4.ok || !p5.ok || !p6.ok || !p7.ok || !p8.ok || !p9.ok || pageErrors.length > 0;
+    const hardFail = !p1Pass || !p2.ok || !p3.ok || !p4.ok || !p5.ok || !p6.ok || !p7.ok || !p8.ok || !p9.ok || !p10.ok || pageErrors.length > 0;
     if (hardFail) {
       console.error('[smoke-cave] FAIL — phases='
-                    + (p1Pass?1:0) + (p2.ok?1:0) + (p3.ok?1:0) + (p4.ok?1:0) + (p5.ok?1:0) + (p6.ok?1:0) + (p7.ok?1:0) + (p8.ok?1:0) + (p9.ok?1:0)
+                    + (p1Pass?1:0) + (p2.ok?1:0) + (p3.ok?1:0) + (p4.ok?1:0) + (p5.ok?1:0) + (p6.ok?1:0) + (p7.ok?1:0) + (p8.ok?1:0) + (p9.ok?1:0) + (p10.ok?1:0)
                     + ' pageerrors=' + pageErrors.length);
       exitCode = 1;
     } else {
-      console.log('[smoke-cave] OK — cohort 8 phases 1..9 passed');
-      console.log('[smoke-cave] cohort 9…N will add rooms / boss / reaper '
+      console.log('[smoke-cave] OK — cohort 9 phases 1..10 passed');
+      console.log('[smoke-cave] cohort 10…N will add rooms / boss / reaper '
                   + '— see docs/STAGE_AUTHORING.md §7');
     }
   } catch (e) {
