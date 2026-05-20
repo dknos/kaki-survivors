@@ -7,7 +7,7 @@ import { state, resetState } from './state.js';
 import { WORLD, SPAWN, AVATARS, CHARACTERS, STAGES, archetypeForAvatar } from './config.js';
 import {
   preloadAll, preloadEssential, preloadStage, preloadTown, preloadCasino,
-  preloadHomeDecor, lazyLoadGLTF, disposeCachedGLTF, BASE, GLTF_CACHE,
+  preloadForestBuildings, preloadHomeDecor, lazyLoadGLTF, disposeCachedGLTF, BASE, GLTF_CACHE,
 } from './assets.js';
 import { createComposer, resizeComposer, BLOOM_LAYER, applyAccessibilityOptions } from './postfx.js';
 import { buildEnv } from './env.js';
@@ -358,6 +358,11 @@ async function boot() {
     console.warn('[boot.fxTex]', e);
   }
 
+  // #151 deferred the town kits to the town-entry path, but buildEnv places
+  // them in the forest overworld (env.js BUILDINGS) right here at boot. Await
+  // the forest building kits first so the houses/keep/inn render as real GLBs
+  // instead of brown placeholder boxes. (Idempotent; ~7 small Quaternius GLBs.)
+  try { await preloadForestBuildings(); } catch (e) { console.warn('[boot.forestBuildings]', e); }
   state.envGroup = buildEnv(scene, renderer);
   // Hotfix #151: defer buildTown + buildCasinoInterior to their enter
   // handlers below (kkEnterTown / setInteractionHandler('casino', ...)) so
@@ -437,11 +442,16 @@ async function boot() {
         loadAtlas('fx/dust_puff_v1',       'assets/sprites/fx/dust_puff_v1.json'),
         loadAtlas('fx/aura_rings_v1',      'assets/sprites/fx/aura_rings_v1.json'),
         loadAtlas('fx/borgir_explosion_v1','assets/sprites/fx/borgir_explosion_v1.json'),
+        // Enemy horde billboards (baked from the trash-mob GLBs). One atlas →
+        // one InstancedMesh → the whole horde renders in a single draw call,
+        // collapsing the ~1700-draw-call 3D-horde cost (see enemies.js).
+        loadAtlas('enemies',               'assets/sprites/enemies_v1.json'),
       ]);
       ensurePool(scene, 'fx/hit_flash_v1',        256, { bypassWhenLowFx: true });
       ensurePool(scene, 'fx/dust_puff_v1',         96, { bypassWhenLowFx: true });
       ensurePool(scene, 'fx/aura_rings_v1',        16, { bypassWhenLowFx: false });
       ensurePool(scene, 'fx/borgir_explosion_v1',  32, { bypassWhenLowFx: false });
+      ensurePool(scene, 'enemies',                512, { bypassWhenLowFx: false });
       console.log('[sprites] bootstrap ok — 4 atlases loaded, 4 pools live (hit_flash, dust_puff, aura_rings, borgir_explosion)');
       // Visibility probe: persistent looping aura at world origin so we can
       // tell "system works, triggers don't" from "system doesn't render".

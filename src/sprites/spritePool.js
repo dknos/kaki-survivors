@@ -67,6 +67,12 @@ export function ensurePool(scene, atlasId, cap = DEFAULT_POOL_CAP, opts = {}) {
                       : atlas.billboard === 'none'     ? 2
                       : 0;
 
+  // Cutout mode (alphaTest ≥ 0.5): opaque billboards that WRITE depth so a
+  // dense persistent horde sorts via the depth buffer instead of alpha-blend
+  // painter's-order (which produces halos + sprites vanishing behind others).
+  // Transient FX atlases omit alphaTest and stay in blended depthWrite:false.
+  const alphaTest = typeof atlas.alphaTest === 'number' ? atlas.alphaTest : 0.01;
+  const cutout = alphaTest >= 0.5;
   const material = new THREE.ShaderMaterial({
     uniforms: {
       uMap:        { value: atlas.texture },
@@ -75,11 +81,12 @@ export function ensurePool(scene, atlasId, cap = DEFAULT_POOL_CAP, opts = {}) {
       uAspect:     { value: aspect },
       uBillboard:  { value: billboardMode },
       uAnchor:     { value: new THREE.Vector2(atlas.anchor[0], atlas.anchor[1]) },
+      uAlphaTest:  { value: alphaTest },
     },
     vertexShader: _VS,
     fragmentShader: _FS,
-    transparent: true,
-    depthWrite: false,
+    transparent: !cutout,
+    depthWrite: cutout,
     blending: atlas.blendMode === 'additive' ? THREE.AdditiveBlending : THREE.NormalBlending,
   });
 
@@ -336,10 +343,11 @@ const _VS = /* glsl */`
 const _FS = /* glsl */`
   precision highp float;
   uniform sampler2D uMap;
+  uniform float uAlphaTest;
   varying vec2 vUv;
   void main() {
     vec4 c = texture2D(uMap, vUv);
-    if (c.a < 0.01) discard;
+    if (c.a < uAlphaTest) discard;
     gl_FragColor = c;
   }
 `;

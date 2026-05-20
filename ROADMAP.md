@@ -14,7 +14,11 @@
 > - Use Blender via MCP if available (see `memory/project_blender_kittykaki.md` for setup) for bespoke models, AO bakes, biome ground textures, boss model upgrades
 > - Edit any file in the repo as needed; trust the existing architecture
 >
-> **Server**: http://localhost:5180/. Always re-curl after changes to confirm modules still serve.
+> **Server**: http://localhost:9477/ (was 5180 — corrected 2026-05-20). Always re-curl after changes to confirm modules still serve.
+>
+> **NOTE (2026-05-20)**: This roadmap hit 🏁 SHIPPING COMPLETE 2026-05-13. The
+> live plan is now `docs/P4_BACKLOG.md` (acceptance table + Cross-cutting queue
+> + cron prompt v3). Iterate there, not here.
 >
 > **Definition of done (overall)**: every Active-queue item checked, no critical bugs, victory + defeat flows polish-complete, game balanced enough to be enjoyable for ~15 min runs.
 

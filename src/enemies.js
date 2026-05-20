@@ -53,7 +53,7 @@ import { tryAchievement, trySecret, showBanner } from './ui.js';
 // import() here. damageEnemy + killEnemy fire 100+ times/frame on borgir
 // salvos; dynamic-import microtasks would crater FPS (see memory
 // feedback_kks_dynamic_import_hotpath).
-import { spawnSprite } from './sprites/index.js';
+import { spawnSprite, moveSprite, killSprite } from './sprites/index.js';
 // PHASE 1 P1E (2026-05-17) — boss intro cinematic trigger. Static import:
 // triggerBossIntro is a cheap no-op when the tier has already fired this run,
 // so calling it on every spawn is safe. Roomboss tier is detected by the
@@ -83,6 +83,38 @@ let _loggedClips = null;
 // ── Tier lookup ───────────────────────────────────────────────────────────────
 const _tierByGlb = Object.create(null);
 for (const t of ENEMY_TIERS) _tierByGlb[t.glb] = t;
+
+// ── 2D billboard horde ──────────────────────────────────────────────────────
+// Trash mobs whose glb key has a baked anim in the 'enemies' sprite atlas
+// (scripts/bake-enemy-sprites + assets/sprites/enemies_v1.json) render as
+// camera-facing billboards from ONE InstancedMesh (1 draw call for the whole
+// horde) instead of multi-primitive 3D GLBs. Elites/minibosses/bosses keep the
+// 3D path (gated in spawnEnemy). Each sprite enemy carries a bare Object3D as
+// e.mesh so every existing e.mesh.position read (collision, FX, drops, kill
+// rings) keeps working untouched — only the visual layer changes.
+// Grows as more enemies are baked; keys must match anim names in the atlas.
+const _SPRITE_KEYS = new Set([
+  'zombie', 'goblin', 'skeleton', 'orc', 'demon', 'robot', 'mech', 'xeno',
+  'slime', 'wizard', 'ghost', 'spider', 'wolf', 'ant', 'beetle', 'ladybug',
+  'grasshopper', 'cockroach', 'mantis', 'wasp', 'bee', 'butterfly', 'caterpillar',
+]);
+const _anchorPool = [];   // reusable empty Object3D anchors for sprite enemies
+
+// Free a dead/retired enemy's visual + recycle its mesh into the right pool.
+// Sprite enemies: kill the billboard slot + recycle the bare anchor (must NOT
+// land in a GLB pool). GLB enemies: hide + push back to their glb pool.
+function _releaseEnemyMesh(e) {
+  if (e._isSprite) {
+    if (e._spriteSlot >= 0) { try { killSprite('enemies', e._spriteSlot); } catch (_) {} e._spriteSlot = -1; }
+    if (e.mesh) { e.mesh.visible = false; _anchorPool.push(e.mesh); }
+    return;
+  }
+  if (e.mesh) e.mesh.visible = false;
+  if (e.mesh && !(e.mesh.userData && e.mesh.userData._isNemesisMesh)) {
+    const _pool = state.enemies.pools[e.glbKey] || (state.enemies.pools[e.glbKey] = []);
+    _pool.push(e.mesh);
+  }
+}
 
 // Difficulty curve — mirrors spawnDirector.computeDifficulty (not exported there).
 // Kept in sync intentionally: this drives rollAffixes() at spawn time.
@@ -349,25 +381,49 @@ export function prewarmPools() {
 // ─────────────────────────────────────────────────────────────────────────────
 export function spawnEnemy(tierConfig, x, z) {
   const key = tierConfig.glb;
-  let pool = state.enemies.pools[key];
-  if (!pool) pool = state.enemies.pools[key] = [];
 
-  let mesh = pool.pop();
-  if (!mesh) {
-    // Pool exhausted — clone fresh and warn (means POOL_PREWARM was too small).
-    console.warn(`[enemies] pool empty for "${key}" — cloning mid-game`);
-    mesh = _makePooledMesh(key, tierConfig.scale);
-    if (!mesh) return null;
-    _scene.add(mesh);
+  // ── 2D billboard path (trash only) ──
+  // If this tier is sprite-eligible AND a billboard slot is available, render
+  // it from the shared 'enemies' atlas (1 draw call for the whole horde) and
+  // back it with a bare Object3D anchor. Falls through to the 3D GLB path if
+  // the atlas isn't loaded yet (slot < 0) so the first wave never goes blank.
+  let mesh = null;
+  let spriteSlot = -1;
+  const wantSprite = _SPRITE_KEYS.has(key)
+    && !tierConfig.elite && !tierConfig.isMiniBoss && !tierConfig.isFinalBoss;
+  if (wantSprite) {
+    spriteSlot = spawnSprite('enemies', {
+      x, y: 0.06, z,
+      scale: tierConfig.spriteScale || tierConfig.scale || 1,
+      anim: key,
+    });
+    if (spriteSlot >= 0) {
+      mesh = _anchorPool.pop() || new THREE.Object3D();
+      if (!mesh.parent) _scene.add(mesh);
+      mesh.position.set(x, 0, z);
+      mesh.visible = true;
+    }
   }
 
-  const fit = mesh.userData && mesh.userData.baseFit ? mesh.userData.baseFit : 1;
-  mesh.scale.setScalar(fit * tierConfig.scale);
-  // yOffset was computed at pool-time AFTER scale was applied — it's already in
-  // world units. Do NOT multiply by tier.scale again (was clipping models into ground).
-  const yOff = (mesh.userData && mesh.userData.yOffset) || 0;
-  mesh.position.set(x, yOff, z);
-  mesh.visible = true;
+  if (!mesh) {
+    let pool = state.enemies.pools[key];
+    if (!pool) pool = state.enemies.pools[key] = [];
+    mesh = pool.pop();
+    if (!mesh) {
+      // Pool exhausted — clone fresh and warn (means POOL_PREWARM was too small).
+      console.warn(`[enemies] pool empty for "${key}" — cloning mid-game`);
+      mesh = _makePooledMesh(key, tierConfig.scale);
+      if (!mesh) return null;
+      _scene.add(mesh);
+    }
+    const fit = mesh.userData && mesh.userData.baseFit ? mesh.userData.baseFit : 1;
+    mesh.scale.setScalar(fit * tierConfig.scale);
+    // yOffset was computed at pool-time AFTER scale was applied — it's already in
+    // world units. Do NOT multiply by tier.scale again (was clipping models into ground).
+    const yOff = (mesh.userData && mesh.userData.yOffset) || 0;
+    mesh.position.set(x, yOff, z);
+    mesh.visible = true;
+  }
 
   /** @type {import('./state.js').EnemyInstance} */
   // Hyper mode: 1.5× HP/spd/dmg across the board.
@@ -418,6 +474,10 @@ export function spawnEnemy(tierConfig, x, z) {
     // longest duration wins, so a stronger debuff can't be overridden by a weaker one.
     _vulnerableUntil: 0,
     _vulnerableMul: 1.0,
+    // 2D billboard state (see _SPRITE_KEYS). _isSprite gates the GLB-only
+    // anim/mixer/facing paths + routes mesh recycling through _releaseEnemyMesh.
+    _isSprite: spriteSlot >= 0,
+    _spriteSlot: spriteSlot,
     procAnim: tierConfig.procAnim || null,
     ranged: tierConfig.ranged || null,
     rangedCD: tierConfig.ranged ? (Math.random() * tierConfig.ranged.cooldown) : 0,
@@ -993,9 +1053,8 @@ export function killEnemy(enemy) {
     }
   }
 
-  // Return mesh to pool
-  const pool = state.enemies.pools[enemy.glbKey] || (state.enemies.pools[enemy.glbKey] = []);
-  pool.push(enemy.mesh);
+  // Return visual to its pool (sprite slot or GLB mesh — see _releaseEnemyMesh).
+  _releaseEnemyMesh(enemy);
 
   // Remove from spatial hash
   state.enemies.spatial.remove(enemy);
@@ -1357,14 +1416,10 @@ export function updateEnemies(dt) {
       // mesh, push to pool, remove from spatial + active. NO drops, NO SFX,
       // NO banner — this is a quiet retirement, not a death.
       e.alive = false;
-      if (e.mesh) e.mesh.visible = false;
-      const _pool = state.enemies.pools[e.glbKey] || (state.enemies.pools[e.glbKey] = []);
-      // Don't push the procedural nemesis mesh into the pool (defensive
-      // even though we exempted .isNemesis above — guards against future
-      // refactors that strip the flag).
-      if (e.mesh && !(e.mesh.userData && e.mesh.userData._isNemesisMesh)) {
-        _pool.push(e.mesh);
-      }
+      // Sprite slot or GLB mesh recycling (sprite anchors must NOT enter a GLB
+      // pool — _releaseEnemyMesh routes by e._isSprite). Nemesis mesh is
+      // exempted from pooling inside the helper.
+      _releaseEnemyMesh(e);
       try { state.enemies.spatial.remove(e); } catch (_) {}
       // swap-pop (active is the live array; safe because we walk backwards)
       const _last = active.length - 1;
@@ -1380,12 +1435,18 @@ export function updateEnemies(dt) {
     if (!e.alive) continue;
 
     const ep = e.mesh.position;
-    // ── Animation mixer ──
-    const mixer = e.mesh.userData && e.mesh.userData.mixer;
-    if (mixer) mixer.update(dt);
+    // ── 2D billboard: follow the anchor (1-frame lag, imperceptible). The
+    // sprite system handles camera-facing + frame animation in tickSpriteSystem.
+    if (e._isSprite) {
+      if (e._spriteSlot >= 0) moveSprite('enemies', e._spriteSlot, ep.x, 0.06, ep.z);
+    } else {
+      // ── Animation mixer ──
+      const mixer = e.mesh.userData && e.mesh.userData.mixer;
+      if (mixer) mixer.update(dt);
+    }
 
     // ── Procedural animation (only if no GLB clip is playing) ──
-    if (e.procAnim && !(e.mesh.userData && e.mesh.userData.hasClip)) {
+    if (e.procAnim && !e._isSprite && !(e.mesh.userData && e.mesh.userData.hasClip)) {
       e._animPhase += dt;
       _applyProcAnim(e);
       // Drive shader-vertex anim uniforms
