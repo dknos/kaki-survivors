@@ -31,6 +31,16 @@ Output: `assets/sprites/enemies_v1.png` + `assets/sprites/enemies_v1.json`.
   a dense horde). FX atlases stay blended; do not copy this to FX.
 - After adding a tier here, add its name to `_SPRITE_KEYS` in `src/enemies.js`.
 
+## Determinism
+
+NOT byte-identical across machines. Unlike the FX pipeline
+(`docs/SPRITE_GEN_PIPELINE.md`, which computes every pixel by formula and
+enforces an md5sum contract), this baker renders GLBs through
+ANGLE/swiftshader — GPU/driver-dependent rasterization, so re-runs produce
+visually-equivalent but not bit-equal PNGs. Do NOT apply the FX md5sum
+determinism check here. Re-bake only when the roster or camera changes;
+review the PNG visually.
+
 ## Deps
 
 `playwright-core` + a swiftshader chromium (paths hard-coded in `run.mjs` for
