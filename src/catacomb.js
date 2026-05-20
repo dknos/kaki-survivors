@@ -44,6 +44,86 @@ function _getRuneTex() {
   return _runeTex;
 }
 
+// ── Procedural grey cobblestone ─────────────────────────────────────────────
+// No grey stone pack ships in assets/sprites (only brown_mud), so the crypt
+// floor + walls draw their diffuse from a generated cobble canvas: a jittered
+// grid of rounded light-grey cells over a darker grout base, each cell grain-
+// speckled with a soft top highlight / bottom shade so it reads as lit stone
+// rather than a flat quad. Cells stay inside their grid box (no row offset) so
+// the 512² canvas tiles seamlessly at any repeat. The brown_mud normal +
+// roughness maps are kept for surface relief — they're colour-neutral.
+let _cobbleCanvas = null;
+function _roundRect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y,     x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x,     y + h, r);
+  ctx.arcTo(x,     y + h, x,     y,     r);
+  ctx.arcTo(x,     y,     x + w, y,     r);
+  ctx.closePath();
+}
+function _getCobbleCanvas() {
+  if (_cobbleCanvas) return _cobbleCanvas;
+  const S = 512;
+  const c = document.createElement('canvas');
+  c.width = c.height = S;
+  const ctx = c.getContext('2d');
+  // Grout base — darker grey so seams between cells read.
+  ctx.fillStyle = '#74757a';
+  ctx.fillRect(0, 0, S, S);
+  const COLS = 5, ROWS = 5;
+  const cw = S / COLS, ch = S / ROWS;
+  for (let gy = 0; gy < ROWS; gy++) {
+    for (let gx = 0; gx < COLS; gx++) {
+      const pad = Math.min(cw, ch) * 0.09;
+      const jx = (Math.random() - 0.5) * pad * 0.8;
+      const jy = (Math.random() - 0.5) * pad * 0.8;
+      const x = gx * cw + pad + jx;
+      const y = gy * ch + pad + jy;
+      const w = cw - pad * 2;
+      const h = ch - pad * 2;
+      const r = Math.min(w, h) * 0.22;
+      const base = 176 + Math.floor((Math.random() - 0.5) * 40); // ~156..196
+      // Cell body with a soft vertical gradient (top lit, bottom shaded).
+      const grad = ctx.createLinearGradient(0, y, 0, y + h);
+      grad.addColorStop(0, `rgb(${base + 14},${base + 14},${base + 16})`);
+      grad.addColorStop(1, `rgb(${base - 16},${base - 16},${base - 14})`);
+      _roundRect(ctx, x, y, w, h, r);
+      ctx.fillStyle = grad;
+      ctx.fill();
+      // Stone grain — scattered light/dark speckle clipped to the cell.
+      ctx.save();
+      ctx.clip();
+      const grains = 90;
+      for (let i = 0; i < grains; i++) {
+        const gxp = x + Math.random() * w;
+        const gyp = y + Math.random() * h;
+        const d = (Math.random() - 0.5) * 38;
+        const v = Math.max(120, Math.min(220, base + d));
+        ctx.fillStyle = `rgba(${v},${v},${v + 1},0.35)`;
+        const s = 0.6 + Math.random() * 1.6;
+        ctx.fillRect(gxp, gyp, s, s);
+      }
+      ctx.restore();
+      // Thin top highlight edge for relief.
+      ctx.strokeStyle = `rgba(${base + 36},${base + 36},${base + 38},0.5)`;
+      ctx.lineWidth = 1.2;
+      _roundRect(ctx, x + 0.6, y + 0.6, w - 1.2, h - 1.2, r);
+      ctx.stroke();
+    }
+  }
+  _cobbleCanvas = c;
+  return c;
+}
+function _makeCobbleTex(repeatU, repeatV) {
+  const t = new THREE.CanvasTexture(_getCobbleCanvas());
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.repeat.set(repeatU, repeatV);
+  t.anisotropy = 4;
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+
 // Chamber dims (world units)
 const CHAMBER_W = 30;
 const CHAMBER_D = 30;
@@ -95,12 +175,11 @@ let _stoneMat = null;
 function _getStoneMat() {
   if (_stoneMat) return _stoneMat;
   const base  = 'assets/sprites/brown_mud/';
-  const diff   = _prepTiled(_texLoader.load(base + 'diff.jpg'),   8, 1, true);
-  const rough  = _prepTiled(_texLoader.load(base + 'rough.jpg'),  8, 1, false);
-  const normal = _prepTiled(_texLoader.load(base + 'nor_gl.jpg'), 8, 1, false);
+  const rough  = _prepTiled(_texLoader.load(base + 'rough.jpg'),  8, 2, false);
+  const normal = _prepTiled(_texLoader.load(base + 'nor_gl.jpg'), 8, 2, false);
   _stoneMat = new THREE.MeshStandardMaterial({
-    map: diff, roughnessMap: rough, normalMap: normal,
-    color: 0x5a4836, roughness: 0.92, metalness: 0.0,
+    map: _makeCobbleTex(8, 2), roughnessMap: rough, normalMap: normal,
+    color: 0xb4b4ba, roughness: 0.92, metalness: 0.0,
     normalScale: new THREE.Vector2(0.7, 0.7),
   });
   return _stoneMat;
@@ -109,12 +188,11 @@ let _floorMat = null;
 function _getFloorMat() {
   if (_floorMat) return _floorMat;
   const base = 'assets/sprites/brown_mud/';
-  const diff   = _prepTiled(_texLoader.load(base + 'diff.jpg'),   6, 6, true);
   const rough  = _prepTiled(_texLoader.load(base + 'rough.jpg'),  6, 6, false);
   const normal = _prepTiled(_texLoader.load(base + 'nor_gl.jpg'), 6, 6, false);
   _floorMat = new THREE.MeshStandardMaterial({
-    map: diff, roughnessMap: rough, normalMap: normal,
-    color: 0x3a2c20, roughness: 0.95, metalness: 0.0,
+    map: _makeCobbleTex(6, 6), roughnessMap: rough, normalMap: normal,
+    color: 0xc4c4c8, roughness: 0.9, metalness: 0.0,
     normalScale: new THREE.Vector2(0.6, 0.6),
   });
   return _floorMat;
@@ -133,7 +211,7 @@ function _makeFloor() {
   for (let i = -2; i <= 2; i++) {
     const seam = new THREE.Mesh(
       new THREE.PlaneGeometry(CHAMBER_W, 0.06),
-      new THREE.MeshBasicMaterial({ color: 0x14100a, transparent: true, opacity: 0.55 }),
+      new THREE.MeshBasicMaterial({ color: 0x5a5a60, transparent: true, opacity: 0.4 }),
     );
     seam.rotation.x = -Math.PI / 2;
     seam.position.y = 0.01;

@@ -41,8 +41,13 @@ export function getAimWorldPos() {
     const f = state.hero.facing;
     return { x: heroPos.x + (f.x || 0) * 10, z: heroPos.z + (f.z || 1) * 10 };
   }
-  const ndcX =  (_mouse.clientX / window.innerWidth)  * 2 - 1;
-  const ndcY = -(_mouse.clientY / window.innerHeight) * 2 + 1;
+  // NDC must be relative to the canvas rect, not the window — with the 16:9
+  // letterbox the canvas is a centred box offset from the viewport by the
+  // black bars, so window-relative coords would skew aim on ultrawide/portrait.
+  const dom = state.renderer && state.renderer.domElement;
+  const rect = dom ? dom.getBoundingClientRect() : { left: 0, top: 0, width: window.innerWidth, height: window.innerHeight };
+  const ndcX =  ((_mouse.clientX - rect.left) / rect.width)  * 2 - 1;
+  const ndcY = -((_mouse.clientY - rect.top)  / rect.height) * 2 + 1;
   _p1.set(ndcX, ndcY, -1).unproject(cam);
   _p2.set(ndcX, ndcY,  1).unproject(cam);
   const dx = _p2.x - _p1.x, dy = _p2.y - _p1.y, dz = _p2.z - _p1.z;

@@ -43,8 +43,18 @@
     @media (max-width: 480px) { :root { --kk-font-scale: 0.70; } }
     * { margin: 0; padding: 0; box-sizing: border-box; }
     html, body { width: 100%; height: 100%; overflow: hidden; background: #000; font-family: 'Courier New', monospace; color: #fff; }
-    #game-canvas { display: block; width: 100vw; height: 100vh; touch-action: none; }
-    #ui-root { position: fixed; inset: 0; pointer-events: none; z-index: 10; }
+    /* Aspect-capped stage. The game world + every fixed-position UI overlay
+       live inside #kk-stage, which JS sizes to a centred max-16:9 box (see
+       main.js#computeStage). On wider-than-16:9 displays (e.g. 32:9 ultrawide)
+       the body's black background shows through as letterbox bars. The
+       `transform` on the stage is load-bearing: it makes `position:fixed`
+       descendants resolve relative to the stage box instead of the viewport,
+       so all the existing fixed overlays letterbox for free — no per-overlay
+       edits. (2D minigame canvases append to <body> directly, so they stay
+       full-viewport — a separate, lower-priority surface.) */
+    #kk-stage { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); overflow: hidden; }
+    #game-canvas { display: block; position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; }
+    #ui-root { position: absolute; inset: 0; pointer-events: none; z-index: 10; }
     #ui-root > * { pointer-events: auto; }
   </style>
   <script type="importmap">
@@ -57,8 +67,10 @@
   </script>
 </head>
 <body>
-  <canvas id="game-canvas"></canvas>
-  <div id="ui-root"></div>
+  <div id="kk-stage">
+    <canvas id="game-canvas"></canvas>
+    <div id="ui-root"></div>
+  </div>
   <script type="module" src="./src/main.js"></script>
 </body>
 </html>

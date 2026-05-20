@@ -172,7 +172,24 @@ import './perfSoak.js';
 // ── Bootstrap ─────────────────────────────────────────────────────────────────
 
 const canvas = document.getElementById('game-canvas');
-let W = window.innerWidth, H = window.innerHeight;
+const stage = document.getElementById('kk-stage');
+// Cap the playfield at 16:9. On wider displays (ultrawide / 32:9) the stage is
+// pinned to viewport height and the extra width becomes black letterbox bars;
+// on taller-than-16:9 (portrait phones) it's pinned to width with top/bottom
+// bars. W/H below are the STAGE dimensions, not the window — the ortho camera
+// aspect, renderer buffer, and all fixed UI overlays key off these so nothing
+// stretches on a 32:9 panel. See index.html#kk-stage for the CSS contract.
+const MAX_ASPECT = 16 / 9;
+function computeStage() {
+  const vw = window.innerWidth, vh = window.innerHeight;
+  let w, h;
+  if (vw / vh > MAX_ASPECT) { h = vh; w = Math.round(vh * MAX_ASPECT); }
+  else { w = vw; h = Math.round(vw / MAX_ASPECT); }
+  stage.style.width = w + 'px';
+  stage.style.height = h + 'px';
+  return { w, h };
+}
+let { w: W, h: H } = computeStage();
 const ASPECT = () => W / H;
 
 const renderer = new THREE.WebGLRenderer({
@@ -225,7 +242,7 @@ state.bloomPass = bloomPass; state.postFXPass = postFXPass;
 
 // Resize
 window.addEventListener('resize', () => {
-  W = window.innerWidth; H = window.innerHeight;
+  ({ w: W, h: H } = computeStage());
   renderer.setSize(W, H);
   const a = ASPECT();
   camera.left = -WORLD.cameraDistance * a; camera.right = WORLD.cameraDistance * a;

@@ -175,7 +175,12 @@ function _spawn(wx, wy, wz, amount, tierName) {
 export function updateDamageNumbers(dt) {
   if (!_layer || !state.camera) return;
   const cam = state.camera;
-  const W = window.innerWidth, H = window.innerHeight;
+  // Project against the canvas rect (the 16:9 letterbox stage), not the raw
+  // window — this layer is viewport-fixed, so add the bar offset (rect.left/
+  // top) or numbers drift into the black bars on ultrawide/portrait.
+  const _dom = state.renderer && state.renderer.domElement;
+  const _r = _dom ? _dom.getBoundingClientRect() : { left: 0, top: 0, width: window.innerWidth, height: window.innerHeight };
+  const W = _r.width, H = _r.height, OX = _r.left, OY = _r.top;
   for (let i = _active.length - 1; i >= 0; i--) {
     const d = _active[i];
     d.t += dt;
@@ -189,8 +194,8 @@ export function updateDamageNumbers(dt) {
     }
     const k = d.t / life;
     _projected.set(d.x, d.y, d.z).project(cam);
-    let sx = (_projected.x * 0.5 + 0.5) * W + d.drift * k;
-    let sy = (-_projected.y * 0.5 + 0.5) * H - d.tier.riseUnits * k;
+    let sx = OX + (_projected.x * 0.5 + 0.5) * W + d.drift * k;
+    let sy = OY + (-_projected.y * 0.5 + 0.5) * H - d.tier.riseUnits * k;
     // Heal: gentle upward bob (sine offset). 1 cycle over lifetime.
     if (d.tier.bob) sy += Math.sin(k * Math.PI * 2) * 3;
     // Crit pop: 1.4x → 1.0x over first 0.18s (CSS transform scale on top of translate).

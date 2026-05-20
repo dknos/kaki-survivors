@@ -30,8 +30,13 @@ function _projectToScreen(worldX, worldY, worldZ) {
   if (!cam) return null;
   _v3.set(worldX, worldY, worldZ);
   _v3.project(cam);
-  const x = (_v3.x * 0.5 + 0.5) * window.innerWidth;
-  const y = (-_v3.y * 0.5 + 0.5) * window.innerHeight;
+  // Map against the canvas rect (16:9 letterbox stage) + bar offset — these
+  // bubbles are viewport-fixed on <body>, so raw window coords would drift
+  // into the black bars on ultrawide/portrait.
+  const dom = state.renderer && state.renderer.domElement;
+  const rect = dom ? dom.getBoundingClientRect() : { left: 0, top: 0, width: window.innerWidth, height: window.innerHeight };
+  const x = rect.left + (_v3.x * 0.5 + 0.5) * rect.width;
+  const y = rect.top  + (-_v3.y * 0.5 + 0.5) * rect.height;
   return { x, y };
 }
 
