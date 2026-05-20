@@ -47,6 +47,11 @@ const WEAPON_BLURBS = {
     body: (lv) => `Drops a sigil every ${lv.cooldown.toFixed(2)}s (up to ${lv.maxSigils} live at once). Each detonates after a brief pulse for ${lv.dmg} damage in a ${lv.radius.toFixed(1)}m blast that briefly stuns survivors.`,
     tags: ['Mine', 'AoE', 'Stun'],
   },
+  gloomsigil: {
+    flavor: 'Gloomsigil — A cave glyph burns into the floor; the dark grinds whatever stands on it.',
+    body: (lv) => `Plants a ${lv.radius.toFixed(1)}m sigil field every ${lv.cooldown.toFixed(2)}s that lingers ${lv.duration.toFixed(1)}s, dealing ${lv.dmg} damage twice a second to enemies inside. Cave-only.`,
+    tags: ['Zone', 'DoT', 'Cave'],
+  },
   // ── Iter 34 — Phase D signature weapons ──
   sig_cowboy_sixshooter: {
     flavor: 'Six-Shooter — Hammer back, fan the trigger. A revolver dump aimed at the nearest unlucky soul.',

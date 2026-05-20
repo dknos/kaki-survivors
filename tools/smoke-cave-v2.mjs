@@ -572,6 +572,44 @@ async function main() {
     });
     console.log('phase 7 (cave achievements): ' + (p7.ok ? 'PASS' : 'FAIL') + ' — ' + p7.reason);
 
+    // ── Phase 8 (P4A cohort 7) — Gloomsigil cave-gated weapon ────────────
+    // Stage-gate is the key regression risk: a cave weapon must NOT leak into
+    // forest/twilight/cinder/void level-up offers. We test the gate directly
+    // by flipping state.run.stage and draining the offer pool (weaponChoices
+    // with a large n returns all eligible weapon cards before fillers):
+    //   (a) REGISTRY.gloomsigil exists with stages: ['cave'].
+    //   (b) On a forest stage, gloomsigil is filtered OUT of the offers.
+    //   (c) On the cave stage, gloomsigil IS offered.
+    //   (d) descriptions.js has a gloomsigil entry (static-source check).
+    const p8 = await page.evaluate(async () => {
+      let mod;
+      try { mod = await import('./src/weapons/index.js'); }
+      catch (e) { return { ok: false, reason: 'weapons/index import failed: ' + (e && e.message) }; }
+      const REG = mod.REGISTRY;
+      if (!REG || !REG.gloomsigil) return { ok: false, reason: 'gloomsigil not in REGISTRY' };
+      const stages = REG.gloomsigil.stages;
+      if (!Array.isArray(stages) || !stages.includes('cave') || stages.length !== 1) {
+        return { ok: false, reason: 'gloomsigil.stages != ["cave"] (got ' + JSON.stringify(stages) + ')' };
+      }
+      const s = window.kkState;
+      if (!s || !s.run) return { ok: false, reason: 'kkState.run missing' };
+      if (typeof mod.weaponChoices !== 'function') return { ok: false, reason: 'weaponChoices not exported' };
+      const bak = s.run.stage;
+      let forestN = -1, caveN = -1;
+      try {
+        s.run.stage = { id: 'forest' };
+        forestN = mod.weaponChoices(50).filter((c) => c && c.id === 'gloomsigil').length;
+        s.run.stage = { id: 'cave' };
+        caveN = mod.weaponChoices(50).filter((c) => c && c.id === 'gloomsigil').length;
+      } finally {
+        s.run.stage = bak;
+      }
+      if (forestN !== 0) return { ok: false, reason: 'gloomsigil leaked into forest offers (n=' + forestN + ')' };
+      if (caveN < 1) return { ok: false, reason: 'gloomsigil not offered on cave (n=' + caveN + ')' };
+      return { ok: true, reason: 'stages=[cave], forest offers=0, cave offers=' + caveN };
+    });
+    console.log('phase 8 (gloomsigil gate): ' + (p8.ok ? 'PASS' : 'FAIL') + ' — ' + p8.reason);
+
     // ── Summary ───────────────────────────────────────────────────────────
     const runtimeSec = ((Date.now() - t0) / 1000).toFixed(1);
 
@@ -583,21 +621,22 @@ async function main() {
     console.log('phase 5 (ceiling drips):         ' + (p5.ok  ? 'PASS' : 'FAIL'));
     console.log('phase 6 (gloomshrimp):           ' + (p6.ok  ? 'PASS' : 'FAIL'));
     console.log('phase 7 (cave achievements):     ' + (p7.ok  ? 'PASS' : 'FAIL'));
+    console.log('phase 8 (gloomsigil gate):       ' + (p8.ok  ? 'PASS' : 'FAIL'));
     console.log('runtime: ' + runtimeSec + 's');
     console.log('console.errors:  ' + consoleErrors.length);
     for (const e of consoleErrors) console.log('  - ' + e);
     console.log('pageerrors:      ' + pageErrors.length);
     for (const e of pageErrors) console.log('  - ' + e);
 
-    const hardFail = !p1Pass || !p2.ok || !p3.ok || !p4.ok || !p5.ok || !p6.ok || !p7.ok || pageErrors.length > 0;
+    const hardFail = !p1Pass || !p2.ok || !p3.ok || !p4.ok || !p5.ok || !p6.ok || !p7.ok || !p8.ok || pageErrors.length > 0;
     if (hardFail) {
       console.error('[smoke-cave] FAIL — phases='
-                    + (p1Pass?1:0) + (p2.ok?1:0) + (p3.ok?1:0) + (p4.ok?1:0) + (p5.ok?1:0) + (p6.ok?1:0) + (p7.ok?1:0)
+                    + (p1Pass?1:0) + (p2.ok?1:0) + (p3.ok?1:0) + (p4.ok?1:0) + (p5.ok?1:0) + (p6.ok?1:0) + (p7.ok?1:0) + (p8.ok?1:0)
                     + ' pageerrors=' + pageErrors.length);
       exitCode = 1;
     } else {
-      console.log('[smoke-cave] OK — cohort 6 phases 1+2+3+4+5+6+7 passed');
-      console.log('[smoke-cave] cohort 7…N will add rooms / boss / reaper / weapons '
+      console.log('[smoke-cave] OK — cohort 7 phases 1+2+3+4+5+6+7+8 passed');
+      console.log('[smoke-cave] cohort 8…N will add rooms / boss / reaper '
                   + '— see docs/STAGE_AUTHORING.md §7');
     }
   } catch (e) {

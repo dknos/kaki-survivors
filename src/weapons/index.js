@@ -16,6 +16,8 @@ import chain from './chain.js';
 import web, { tickWebs } from './web.js';
 import frostbloom from './frostbloom.js';
 import sigilbell from './sigilbell.js';
+// P4A cohort 7 (2026-05-20) — cave-stage weapon (stages:['cave'] gated).
+import gloomsigil from './gloomsigil.js';
 // Iter 34 — Phase D signature weapons (1 bespoke kit per avatar; Phase F adds the rest).
 import sigCowboySixshooter from './sig/cowboy_sixshooter.js';
 import sigMothmanDustcloak from './sig/mothman_dustcloak.js';
@@ -80,6 +82,7 @@ export const REGISTRY = {
   [web.id]:        web,
   [frostbloom.id]: frostbloom,
   [sigilbell.id]:  sigilbell,
+  [gloomsigil.id]: gloomsigil,
   [sigCowboySixshooter.id]: sigCowboySixshooter,
   [sigMothmanDustcloak.id]: sigMothmanDustcloak,
   [sigSpaceSatellites.id]:  sigSpaceSatellites,
@@ -315,6 +318,13 @@ export function weaponChoices(n) {
     // FE-C1B: hidden weapons (Forest specials, slot 5) never appear in the
     // level-up card pool — they're equipped automatically per meta unlock.
     if (mod && mod.hidden) continue;
+    // Stage-gated weapons (e.g. cave-only Gloomsigil): only offer the card on
+    // a matching stage. Weapons with no `stages` field are offered everywhere
+    // (backward compat). Carried weapons still tick on any stage.
+    if (mod && Array.isArray(mod.stages)) {
+      const stageId = state.run && state.run.stage && state.run.stage.id;
+      if (stageId && !mod.stages.includes(stageId)) continue;
+    }
     const have = owned.get(id);
     if (have) {
       if (have.level < mod.maxLevel) {
