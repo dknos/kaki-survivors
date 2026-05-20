@@ -764,6 +764,51 @@ async function main() {
     });
     console.log('phase 11 (mushrooms): ' + (p11.ok ? 'PASS' : 'FAIL') + ' — ' + p11.reason);
 
+    // ── Phase 12 (P4A cohort 11) — Central sigil-floor landmark ───────────
+    // Asserts the inscribed rune circle at hero spawn + its ground-decal
+    // recipe (parity with cohort-3 glowmoss so it reads as ground, not a prop):
+    //   (a) userData.sigilFloor true (builder ran).
+    //   (b) mesh mounted + centered near origin (fills the bare r<12 center).
+    //   (c) rune texture present (map), slot-3 moss tint (0x7fffe4).
+    //   (d) additive blending + renderOrder -1 + polygonOffset + bloom.
+    const p12 = await page.evaluate(() => {
+      const s = window.kkState;
+      if (!s || !s.scene) return { ok: false, reason: 'kkState/scene missing' };
+      const cg = s.scene.getObjectByName('caveStage');
+      if (!cg) return { ok: false, reason: 'caveStage group missing' };
+      if (!(cg.userData && cg.userData.sigilFloor)) {
+        return { ok: false, reason: 'userData.sigilFloor falsy — builder no-op' };
+      }
+      const grp = cg.getObjectByName('caveStage_sigilFloor_grp');
+      if (!grp) return { ok: false, reason: 'caveStage_sigilFloor_grp missing' };
+      const mesh = grp.getObjectByName('caveStage_sigilFloor');
+      if (!mesh) return { ok: false, reason: 'sigilFloor mesh missing' };
+      const px = mesh.position.x, pz = mesh.position.z;
+      if (Math.abs(px) > 1 || Math.abs(pz) > 1) {
+        return { ok: false, reason: 'sigil not centered (pos=' + px.toFixed(1) + ',' + pz.toFixed(1) + ')' };
+      }
+      const mat = mesh.material;
+      if (!mat || !mat.map) return { ok: false, reason: 'sigil material has no rune texture (map)' };
+      const colHex = (mat.color && mat.color.getHex) ? mat.color.getHex() : -1;
+      if (colHex !== 0x7fffe4) {
+        return { ok: false, reason: 'sigil color=0x' + colHex.toString(16) + ' (expected 0x7fffe4 slot-3 moss)' };
+      }
+      if (mat.blending !== 2) {   // THREE.AdditiveBlending
+        return { ok: false, reason: 'sigil blending=' + mat.blending + ' (expected 2 / additive)' };
+      }
+      if (mesh.renderOrder !== -1) {
+        return { ok: false, reason: 'sigil renderOrder=' + mesh.renderOrder + ' (expected -1 ground decal)' };
+      }
+      if (!mat.polygonOffset) {
+        return { ok: false, reason: 'sigil material missing polygonOffset (z-order)' };
+      }
+      const bloom = mesh.layers && typeof mesh.layers.mask === 'number'
+        ? (mesh.layers.mask & (1 << 1)) !== 0 : false;
+      if (!bloom) return { ok: false, reason: 'sigil not bloom-tagged' };
+      return { ok: true, reason: 'sigil centered, rune-tex slot-3 moss, additive + renderOrder -1 + polygonOffset + bloom' };
+    });
+    console.log('phase 12 (sigil floor): ' + (p12.ok ? 'PASS' : 'FAIL') + ' — ' + p12.reason);
+
     // ── Summary ───────────────────────────────────────────────────────────
     const runtimeSec = ((Date.now() - t0) / 1000).toFixed(1);
 
@@ -779,21 +824,22 @@ async function main() {
     console.log('phase 9 (echobolt gate):         ' + (p9.ok  ? 'PASS' : 'FAIL'));
     console.log('phase 10 (stalagmites):          ' + (p10.ok ? 'PASS' : 'FAIL'));
     console.log('phase 11 (mushrooms):            ' + (p11.ok ? 'PASS' : 'FAIL'));
+    console.log('phase 12 (sigil floor):          ' + (p12.ok ? 'PASS' : 'FAIL'));
     console.log('runtime: ' + runtimeSec + 's');
     console.log('console.errors:  ' + consoleErrors.length);
     for (const e of consoleErrors) console.log('  - ' + e);
     console.log('pageerrors:      ' + pageErrors.length);
     for (const e of pageErrors) console.log('  - ' + e);
 
-    const hardFail = !p1Pass || !p2.ok || !p3.ok || !p4.ok || !p5.ok || !p6.ok || !p7.ok || !p8.ok || !p9.ok || !p10.ok || !p11.ok || pageErrors.length > 0;
+    const hardFail = !p1Pass || !p2.ok || !p3.ok || !p4.ok || !p5.ok || !p6.ok || !p7.ok || !p8.ok || !p9.ok || !p10.ok || !p11.ok || !p12.ok || pageErrors.length > 0;
     if (hardFail) {
       console.error('[smoke-cave] FAIL — phases='
-                    + (p1Pass?1:0) + (p2.ok?1:0) + (p3.ok?1:0) + (p4.ok?1:0) + (p5.ok?1:0) + (p6.ok?1:0) + (p7.ok?1:0) + (p8.ok?1:0) + (p9.ok?1:0) + (p10.ok?1:0) + (p11.ok?1:0)
+                    + (p1Pass?1:0) + (p2.ok?1:0) + (p3.ok?1:0) + (p4.ok?1:0) + (p5.ok?1:0) + (p6.ok?1:0) + (p7.ok?1:0) + (p8.ok?1:0) + (p9.ok?1:0) + (p10.ok?1:0) + (p11.ok?1:0) + (p12.ok?1:0)
                     + ' pageerrors=' + pageErrors.length);
       exitCode = 1;
     } else {
-      console.log('[smoke-cave] OK — cohort 10 phases 1..11 passed');
-      console.log('[smoke-cave] cohort 11…N will add rooms / boss / reaper '
+      console.log('[smoke-cave] OK — cohort 11 phases 1..12 passed');
+      console.log('[smoke-cave] cohort 12…N will add rooms / boss / reaper '
                   + '— see docs/STAGE_AUTHORING.md §7');
     }
   } catch (e) {

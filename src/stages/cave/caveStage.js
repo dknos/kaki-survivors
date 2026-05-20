@@ -42,6 +42,7 @@ import { buildCeilingDrips, disposeCeilingDrips, tickCeilingDrips } from './cave
 import { buildGloomshrimp, disposeGloomshrimp, tickGloomshrimp } from './caveGloomshrimp.js';
 import { buildCaveStalagmites, disposeCaveStalagmites } from './caveStalagmites.js';
 import { buildCaveMushrooms, disposeCaveMushrooms } from './caveMushrooms.js';
+import { buildCaveSigilFloor, disposeCaveSigilFloor } from './caveSigilFloor.js';
 import { loadCaveAchievements, tickCaveAchievements } from '../../caveAchievements.js';
 
 const STAGE_GROUP_NAME = 'caveStage';
@@ -158,6 +159,19 @@ export function buildCaveStage(scene) {
   }
   group.userData.mushroomCount = mushroomCount;
 
+  // P4A cohort 11: central sigil-floor landmark. A large rune circle inscribed
+  // at hero spawn (fills the bare r<12 center). Flat ground decal (cohort-3
+  // z-order recipe) → zero occlusion. Static decor (no tick). Flags userData
+  // for the smoke phase 12 probe.
+  let sigilFloor = false;
+  try {
+    const built = buildCaveSigilFloor(group);
+    sigilFloor = !!(built && built.present);
+  } catch (e) {
+    console.warn('[caveStage] buildCaveSigilFloor failed:', e);
+  }
+  group.userData.sigilFloor = sigilFloor;
+
   // P4A cohort 6: register cave-specific achievements into the shared registry
   // (docs/STAGE_AUTHORING.md §8d). Eligibility is scanned in tickCave via
   // tickCaveAchievements — no main.js edit. Idempotent.
@@ -217,6 +231,9 @@ export function disposeCaveStage(scene) {
   // Mushrooms (cohort 10) own their two InstancedMesh geo+mat; idempotent +
   // self-detaching — drop before the group traverse to avoid double-dispose.
   try { disposeCaveMushrooms(); } catch (_) {}
+  // Sigil floor (cohort 11) owns its geo+mat+CanvasTexture; idempotent +
+  // self-detaching — drop before the group traverse to avoid double-dispose.
+  try { disposeCaveSigilFloor(); } catch (_) {}
   // Detach the stage group itself so traversal doesn't race with re-add.
   if (_group.parent) _group.parent.remove(_group);
   _group.traverse((o) => {
