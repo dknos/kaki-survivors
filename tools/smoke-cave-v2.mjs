@@ -473,6 +473,65 @@ async function main() {
     });
     console.log('phase 5 (ceiling drips): ' + (p5.ok ? 'PASS' : 'FAIL') + ' — ' + p5.reason);
 
+    // ── Phase 6 (P4A cohort 5) — Gloomshrimp neutrals ────────────────────
+    // Four assertions:
+    //   (a) caveStage.userData.gloomshrimpCount >= 10 — guards against the
+    //       buildGloomshrimp builder silently no-op'ing. Cohort 5 spawns 12.
+    //   (b) InstancedMesh `caveStage_gloomshrimp` mounted under
+    //       `caveStage_gloomshrimpGroup` and bloom-tagged (slot-3 emissive
+    //       pops under the same chrome as cohort-2/3/4).
+    //   (c) Material emissive is slot-3 moss (0x7fffe4).
+    //   (d) Instance 0's translation changes across a 700ms gap — proves
+    //       tickGloomshrimp is actually wired into the frame loop (the whole
+    //       tickCave → tickGloomshrimp chain), not just built once.
+    const p6before = await page.evaluate(() => {
+      const s = window.kkState;
+      const cg = s && s.scene && s.scene.getObjectByName('caveStage');
+      const g = cg && cg.getObjectByName('caveStage_gloomshrimpGroup');
+      const inst = g && g.getObjectByName('caveStage_gloomshrimp');
+      if (!inst) return null;
+      const a = inst.instanceMatrix.array;
+      return { x: a[12], y: a[13], z: a[14] };
+    });
+    await new Promise((r) => setTimeout(r, 700));   // let the school drift
+    const p6 = await page.evaluate((before) => {
+      const s = window.kkState;
+      if (!s || !s.scene) return { ok: false, reason: 'kkState/scene missing' };
+      const cg = s.scene.getObjectByName('caveStage');
+      if (!cg) return { ok: false, reason: 'caveStage group missing' };
+      const n = (cg.userData && cg.userData.gloomshrimpCount) | 0;
+      if (n < 10) return { ok: false, reason: 'gloomshrimpCount=' + n + ' (expected >=10)' };
+      const g = cg.getObjectByName('caveStage_gloomshrimpGroup');
+      if (!g) return { ok: false, reason: 'caveStage_gloomshrimpGroup missing', count: n };
+      const inst = g.getObjectByName('caveStage_gloomshrimp');
+      if (!inst) return { ok: false, reason: 'gloomshrimp InstancedMesh missing', count: n };
+      const bloom = inst.layers && typeof inst.layers.mask === 'number'
+        ? (inst.layers.mask & (1 << 1)) !== 0
+        : false;
+      if (!bloom) return { ok: false, reason: 'gloomshrimp InstancedMesh not bloom-tagged', count: n };
+      const mat = inst.material;
+      const emHex = (mat && mat.emissive && mat.emissive.getHex) ? mat.emissive.getHex() : -1;
+      if (emHex !== 0x7fffe4) {
+        return { ok: false, reason: 'gloomshrimp emissive=0x' + emHex.toString(16) + ' (expected 0x7fffe4 slot-3 moss)', count: n };
+      }
+      let moved = -1;
+      if (before) {
+        const a = inst.instanceMatrix.array;
+        const dx = a[12] - before.x, dy = a[13] - before.y, dz = a[14] - before.z;
+        moved = Math.sqrt(dx * dx + dy * dy + dz * dz);
+      }
+      if (!(moved > 0.02)) {
+        return { ok: false, reason: 'instance 0 did not move (moved=' + moved + ') — tickGloomshrimp not running', count: n };
+      }
+      return {
+        ok: true,
+        reason: 'gloomshrimpCount=' + n + ', bloom=' + bloom
+              + ', slot-3 emissive, moved=' + moved.toFixed(3) + 'u/0.7s',
+        count: n, moved,
+      };
+    }, p6before);
+    console.log('phase 6 (gloomshrimp): ' + (p6.ok ? 'PASS' : 'FAIL') + ' — ' + p6.reason);
+
     // ── Summary ───────────────────────────────────────────────────────────
     const runtimeSec = ((Date.now() - t0) / 1000).toFixed(1);
 
@@ -482,21 +541,22 @@ async function main() {
     console.log('phase 3 (env cave branch):       ' + (p3.ok  ? 'PASS' : 'FAIL'));
     console.log('phase 4 (glowmoss + ground pack):' + (p4.ok  ? 'PASS' : 'FAIL'));
     console.log('phase 5 (ceiling drips):         ' + (p5.ok  ? 'PASS' : 'FAIL'));
+    console.log('phase 6 (gloomshrimp):           ' + (p6.ok  ? 'PASS' : 'FAIL'));
     console.log('runtime: ' + runtimeSec + 's');
     console.log('console.errors:  ' + consoleErrors.length);
     for (const e of consoleErrors) console.log('  - ' + e);
     console.log('pageerrors:      ' + pageErrors.length);
     for (const e of pageErrors) console.log('  - ' + e);
 
-    const hardFail = !p1Pass || !p2.ok || !p3.ok || !p4.ok || !p5.ok || pageErrors.length > 0;
+    const hardFail = !p1Pass || !p2.ok || !p3.ok || !p4.ok || !p5.ok || !p6.ok || pageErrors.length > 0;
     if (hardFail) {
       console.error('[smoke-cave] FAIL — phases='
-                    + (p1Pass?1:0) + (p2.ok?1:0) + (p3.ok?1:0) + (p4.ok?1:0) + (p5.ok?1:0)
+                    + (p1Pass?1:0) + (p2.ok?1:0) + (p3.ok?1:0) + (p4.ok?1:0) + (p5.ok?1:0) + (p6.ok?1:0)
                     + ' pageerrors=' + pageErrors.length);
       exitCode = 1;
     } else {
-      console.log('[smoke-cave] OK — cohort 4 phases 1+2+3+4+5 passed');
-      console.log('[smoke-cave] cohort 5…N will add rooms / boss / reaper / weapons '
+      console.log('[smoke-cave] OK — cohort 5 phases 1+2+3+4+5+6 passed');
+      console.log('[smoke-cave] cohort 6…N will add rooms / boss / reaper / weapons '
                   + '— see docs/STAGE_AUTHORING.md §7');
     }
   } catch (e) {

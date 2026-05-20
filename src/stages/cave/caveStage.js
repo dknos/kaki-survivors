@@ -39,6 +39,7 @@ import { CAVE_PALETTE } from './cavePalette.js';
 import { buildStalactiteCluster, disposeStalactites } from './caveStalactites.js';
 import { buildGlowmossPatches, disposeGlowmoss, tickGlowmoss } from './caveGlowmoss.js';
 import { buildCeilingDrips, disposeCeilingDrips, tickCeilingDrips } from './caveCeilingDrips.js';
+import { buildGloomshrimp, disposeGloomshrimp, tickGloomshrimp } from './caveGloomshrimp.js';
 
 const STAGE_GROUP_NAME = 'caveStage';
 
@@ -113,6 +114,20 @@ export function buildCaveStage(scene) {
     console.warn('[caveStage] buildCeilingDrips failed:', e);
   }
 
+  // P4A cohort 5: gloomshrimp neutrals. 12 bioluminescent cave creatures
+  // (slot-2 body + slot-3 moss emissive, bloom-tagged) drifting above the
+  // floor and darting away from the hero. Non-combat ambient life — the cave
+  // equivalent of forest fireflies/deer (src/forestNeutrals.js). Ticked via
+  // tickGloomshrimp → tickCave. Records gloomshrimpCount for the smoke probe.
+  let shrimpCount = 0;
+  try {
+    const built = buildGloomshrimp(group);
+    shrimpCount = built && built.count ? built.count : 0;
+  } catch (e) {
+    console.warn('[caveStage] buildGloomshrimp failed:', e);
+  }
+  group.userData.gloomshrimpCount = shrimpCount;
+
   scene.add(group);
   _group = group;
   return group;
@@ -131,6 +146,7 @@ export function tickCave(dt) {
   if (!_group) return;
   tickGlowmoss(dt);
   tickCeilingDrips(dt);   // P4A cohort 4 — gravity-fall + landing fade + recycle
+  tickGloomshrimp(dt);    // P4A cohort 5 — drift + hero-flee swim
 }
 
 /**
@@ -152,6 +168,9 @@ export function disposeCaveStage(scene) {
   // Ceiling drips own their own InstancedMesh + pool state; same idempotent
   // contract — detach before the group traverse to avoid double-dispose.
   try { disposeCeilingDrips(); } catch (_) {}
+  // Gloomshrimp (cohort 5) own their InstancedMesh geo+mat; idempotent + self-
+  // detaching — drop before the group traverse to avoid double-dispose.
+  try { disposeGloomshrimp(); } catch (_) {}
   // Detach the stage group itself so traversal doesn't race with re-add.
   if (_group.parent) _group.parent.remove(_group);
   _group.traverse((o) => {
