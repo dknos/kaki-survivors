@@ -344,7 +344,12 @@ const _VS = /* glsl */`
     vUv = frameUV;
 
     // Plane is [-0.5..0.5] in XY. Apply scale + anchor offset.
-    vec2 cornerOffset = (position.xy - (uAnchor - vec2(0.5))) * vec2(uAspect, 1.0) * aScale;
+    // Pivot in (0,0)=top-left frame coords (SPRITES_VISUAL_STYLE.md): anchor.y=1
+    // = feet (sprite rises above iPos), 0 = head (hangs below), 0.5 = centered. The
+    // y sign is flipped vs x — frame-v grows downward, world-up grows upward. The old
+    // single-vector form lacked the flip, hanging ground mobs (anchor.y=1) below the
+    // floor where only their blob shadow showed.
+    vec2 cornerOffset = (position.xy - vec2(uAnchor.x - 0.5, 0.5 - uAnchor.y)) * vec2(uAspect, 1.0) * aScale;
 
     // Pull instance world translation out of the instance matrix.
     vec3 iPos = vec3(instanceMatrix[3][0], instanceMatrix[3][1], instanceMatrix[3][2]);
