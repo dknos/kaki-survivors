@@ -861,6 +861,52 @@ async function main() {
     console.log('phase 13 (cave visual): ' + (p13Pass ? 'PASS' : 'FAIL') + ' — ' + p13Reason);
     console.log('  cave screenshot: ' + caveShot + ' (' + caveShotBytes + 'B)');
 
+    // ── Phase 14 (P4A cohort 12) — Cave ceiling / sky-dome ────────────────
+    // Backdrop dome (mirrors forestSkyDome) — occlusion-safe by construction:
+    //   (a) userData.skyDome true (builder ran).
+    //   (b) mesh mounted, side = BackSide (1), renderOrder -100, depthWrite off
+    //       — the recipe that makes it a non-occluding backdrop.
+    //   (c) large sphere (radius >= 100) wrapping the arena.
+    //   (d) palette-pure gradient uniforms: uLo = shadow (0x1a1820, fog-matched
+    //       horizon), uHi = stone (0x4a4a52, vault).
+    // The CC7 render gate (phase 13 above) already re-confirmed the cave still
+    // renders non-black WITH this dome present (maxLum check).
+    const p14 = await page.evaluate(() => {
+      const s = window.kkState;
+      if (!s || !s.scene) return { ok: false, reason: 'kkState/scene missing' };
+      const cg = s.scene.getObjectByName('caveStage');
+      if (!cg) return { ok: false, reason: 'caveStage group missing' };
+      if (!(cg.userData && cg.userData.skyDome)) {
+        return { ok: false, reason: 'userData.skyDome falsy — builder no-op' };
+      }
+      const grp = cg.getObjectByName('caveStage_skyDome_grp');
+      if (!grp) return { ok: false, reason: 'caveStage_skyDome_grp missing' };
+      const mesh = grp.getObjectByName('caveStage_skyDome');
+      if (!mesh) return { ok: false, reason: 'skyDome mesh missing' };
+      // BackSide === 1; the backdrop recipe.
+      if (mesh.material.side !== 1) {
+        return { ok: false, reason: 'dome side=' + mesh.material.side + ' (expected 1 / BackSide)' };
+      }
+      if (mesh.renderOrder !== -100) {
+        return { ok: false, reason: 'dome renderOrder=' + mesh.renderOrder + ' (expected -100 backdrop)' };
+      }
+      if (mesh.material.depthWrite !== false) {
+        return { ok: false, reason: 'dome depthWrite not false (would occlude)' };
+      }
+      const rad = mesh.geometry && mesh.geometry.parameters && mesh.geometry.parameters.radius;
+      if (!(rad >= 100)) {
+        return { ok: false, reason: 'dome radius=' + rad + ' (expected >=100 to wrap arena)' };
+      }
+      // Palette-pure gradient uniforms.
+      const u = mesh.material.uniforms || {};
+      const lo = u.uLo && u.uLo.value && u.uLo.value.getHex ? u.uLo.value.getHex() : -1;
+      const hi = u.uHi && u.uHi.value && u.uHi.value.getHex ? u.uHi.value.getHex() : -1;
+      if (lo !== 0x1a1820) return { ok: false, reason: 'dome uLo=0x' + lo.toString(16) + ' (expected 0x1a1820 shadow/fog)' };
+      if (hi !== 0x4a4a52) return { ok: false, reason: 'dome uHi=0x' + hi.toString(16) + ' (expected 0x4a4a52 stone vault)' };
+      return { ok: true, reason: 'dome BackSide + renderOrder -100 + depthWrite off, r=' + rad + ', gradient shadow→stone' };
+    });
+    console.log('phase 14 (sky dome): ' + (p14.ok ? 'PASS' : 'FAIL') + ' — ' + p14.reason);
+
     // ── Summary ───────────────────────────────────────────────────────────
     const runtimeSec = ((Date.now() - t0) / 1000).toFixed(1);
 
@@ -878,21 +924,22 @@ async function main() {
     console.log('phase 11 (mushrooms):            ' + (p11.ok ? 'PASS' : 'FAIL'));
     console.log('phase 12 (sigil floor):          ' + (p12.ok ? 'PASS' : 'FAIL'));
     console.log('phase 13 (cave visual):          ' + (p13Pass ? 'PASS' : 'FAIL'));
+    console.log('phase 14 (sky dome):             ' + (p14.ok ? 'PASS' : 'FAIL'));
     console.log('runtime: ' + runtimeSec + 's');
     console.log('console.errors:  ' + consoleErrors.length);
     for (const e of consoleErrors) console.log('  - ' + e);
     console.log('pageerrors:      ' + pageErrors.length);
     for (const e of pageErrors) console.log('  - ' + e);
 
-    const hardFail = !p1Pass || !p2.ok || !p3.ok || !p4.ok || !p5.ok || !p6.ok || !p7.ok || !p8.ok || !p9.ok || !p10.ok || !p11.ok || !p12.ok || !p13Pass || pageErrors.length > 0;
+    const hardFail = !p1Pass || !p2.ok || !p3.ok || !p4.ok || !p5.ok || !p6.ok || !p7.ok || !p8.ok || !p9.ok || !p10.ok || !p11.ok || !p12.ok || !p13Pass || !p14.ok || pageErrors.length > 0;
     if (hardFail) {
       console.error('[smoke-cave] FAIL — phases='
-                    + (p1Pass?1:0) + (p2.ok?1:0) + (p3.ok?1:0) + (p4.ok?1:0) + (p5.ok?1:0) + (p6.ok?1:0) + (p7.ok?1:0) + (p8.ok?1:0) + (p9.ok?1:0) + (p10.ok?1:0) + (p11.ok?1:0) + (p12.ok?1:0) + (p13Pass?1:0)
+                    + (p1Pass?1:0) + (p2.ok?1:0) + (p3.ok?1:0) + (p4.ok?1:0) + (p5.ok?1:0) + (p6.ok?1:0) + (p7.ok?1:0) + (p8.ok?1:0) + (p9.ok?1:0) + (p10.ok?1:0) + (p11.ok?1:0) + (p12.ok?1:0) + (p13Pass?1:0) + (p14.ok?1:0)
                     + ' pageerrors=' + pageErrors.length);
       exitCode = 1;
     } else {
-      console.log('[smoke-cave] OK — cohort 11 phases 1..13 passed (incl. CC7 render gate)');
-      console.log('[smoke-cave] cohort 12…N will add rooms / boss / reaper '
+      console.log('[smoke-cave] OK — cohort 12 phases 1..14 passed (incl. CC7 render gate + sky-dome)');
+      console.log('[smoke-cave] cohort 13…N will add rooms / boss / reaper '
                   + '— see docs/STAGE_AUTHORING.md §7');
     }
   } catch (e) {

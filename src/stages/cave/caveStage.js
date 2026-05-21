@@ -43,6 +43,7 @@ import { buildGloomshrimp, disposeGloomshrimp, tickGloomshrimp } from './caveGlo
 import { buildCaveStalagmites, disposeCaveStalagmites } from './caveStalagmites.js';
 import { buildCaveMushrooms, disposeCaveMushrooms } from './caveMushrooms.js';
 import { buildCaveSigilFloor, disposeCaveSigilFloor } from './caveSigilFloor.js';
+import { buildCaveSkyDome, disposeCaveSkyDome } from './caveSkyDome.js';
 import { loadCaveAchievements, tickCaveAchievements } from '../../caveAchievements.js';
 
 const STAGE_GROUP_NAME = 'caveStage';
@@ -172,6 +173,18 @@ export function buildCaveStage(scene) {
   }
   group.userData.sigilFloor = sigilFloor;
 
+  // P4A cohort 12: cave ceiling / sky-dome. A large BackSide gradient dome
+  // (mirrors forestSkyDome) wrapping the arena as a dark stone vault backdrop —
+  // occlusion-safe by construction (renderOrder -100, depthWrite off). Static.
+  let skyDome = false;
+  try {
+    const built = buildCaveSkyDome(group);
+    skyDome = !!(built && built.present);
+  } catch (e) {
+    console.warn('[caveStage] buildCaveSkyDome failed:', e);
+  }
+  group.userData.skyDome = skyDome;
+
   // P4A cohort 6: register cave-specific achievements into the shared registry
   // (docs/STAGE_AUTHORING.md §8d). Eligibility is scanned in tickCave via
   // tickCaveAchievements — no main.js edit. Idempotent.
@@ -234,6 +247,9 @@ export function disposeCaveStage(scene) {
   // Sigil floor (cohort 11) owns its geo+mat+CanvasTexture; idempotent +
   // self-detaching — drop before the group traverse to avoid double-dispose.
   try { disposeCaveSigilFloor(); } catch (_) {}
+  // Sky-dome (cohort 12) owns its big sphere geo + ShaderMaterial; idempotent +
+  // self-detaching — drop before the group traverse to avoid double-dispose.
+  try { disposeCaveSkyDome(); } catch (_) {}
   // Detach the stage group itself so traversal doesn't race with re-add.
   if (_group.parent) _group.parent.remove(_group);
   _group.traverse((o) => {
