@@ -104,6 +104,12 @@ const _anchorPool = [];   // reusable empty Object3D anchors for sprite enemies
 // intensity) — this is the unlit-sprite analog. Sole blind-tune knob for the
 // sprite flash (no cave/forest screenshot gate); nudge here.
 const SPRITE_FLASH_STRENGTH = 0.85;
+// Sprite billboard world-height = (tier scale) × this. Matches the 3D path's
+// baseFit target (line ~319 normalizes every GLB to 2.0u tall before tier scale),
+// so a tier renders the same height whether it draws as a GLB or a billboard. The
+// spawn path used to pass tier.scale RAW as the absolute sprite height → sprites
+// came out ~half size ("tiny mobs"). Tunable: bump if baked-frame padding reads short.
+const SPRITE_FIT_HEIGHT = 2.0;
 
 // Free a dead/retired enemy's visual + recycle its mesh into the right pool.
 // Sprite enemies: kill the billboard slot + recycle the bare anchor (must NOT
@@ -399,7 +405,7 @@ export function spawnEnemy(tierConfig, x, z) {
   if (wantSprite) {
     spriteSlot = spawnSprite('enemies', {
       x, y: 0.06, z,
-      scale: tierConfig.spriteScale || tierConfig.scale || 1,
+      scale: tierConfig.spriteScale || (tierConfig.scale || 1) * SPRITE_FIT_HEIGHT,
       anim: key,
     });
     if (spriteSlot >= 0) {
