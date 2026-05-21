@@ -83,10 +83,16 @@ const ATMOS_SPECS = {
     yMin: 0.2,
     yMax: 10,
     color: 0x7fffe4,     // CAVE_PALETTE.moss (slot 3)
-    baseSize: 2.4,
-    sizeJitter: 0.9,
-    baseAlpha: 0.50,
-    alphaJitter: 0.25,
+    // CC10 (2026-05-20): spores were the LARGEST of any stage (2.4 vs forest
+    // 2.0 / cinder 1.5 / void 1.6) AND additive-white on the darkest bg, so
+    // they bloomed into big pale puffs — contradicting the "sparse / dripping
+    // silence / subtle" intent above. Verified against tools/_thumb_cave_visual
+    // .png (CC7 render gate). Pulled down to subtle motes: smallest base size +
+    // dimmer alpha so the cyan tint reads without blowing out on the dark bg.
+    baseSize: 1.4,
+    sizeJitter: 0.6,
+    baseAlpha: 0.40,
+    alphaJitter: 0.22,
     texKey: 'glowWhite',
     blending: THREE.AdditiveBlending,
   },
