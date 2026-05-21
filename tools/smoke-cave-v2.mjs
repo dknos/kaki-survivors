@@ -809,6 +809,58 @@ async function main() {
     });
     console.log('phase 12 (sigil floor): ' + (p12.ok ? 'PASS' : 'FAIL') + ' — ' + p12.reason);
 
+    // ── Phase 13 (CC7) — Cave visual self-check ───────────────────────────
+    // The cave's first RENDER-level gate (cohorts 1-12 were object-probe only,
+    // so every texture-scale / occlusion / palette call shipped blind). Two
+    // checks:
+    //   (a) Force one render to the canvas back buffer + readPixels a small
+    //       center cross → assert the cave is NOT a black/empty frame
+    //       (maxLum > 2). readPixels-after-our-own-render reads the back buffer
+    //       in the SAME task, so it's valid regardless of preserveDrawingBuffer;
+    //       it bypasses the bloom composer, but the raw scene is exactly what
+    //       proves geometry actually rasterized. The cohort-11 central sigil
+    //       floor (additive moss at the screen center) makes a real render
+    //       clear this trivially, while a broken/empty render reads pure 0.
+    //   (b) Save a viewport screenshot (_thumb_cave_visual.png) so a human can
+    //       eyeball the cave without launching, + a non-trivial byte-size floor
+    //       so a totally failed capture fails. NOT a perf/brightness gate
+    //       (headless swiftshader can't be held to either).
+    const caveShot = path.join(__dirname, '_thumb_cave_visual.png');
+    await page.screenshot({ path: caveShot, fullPage: false });
+    const caveShotBytes = (() => { try { return fs.statSync(caveShot).size; } catch (_) { return -1; } })();
+    const pv = await page.evaluate(() => {
+      const s = window.kkState;
+      if (!s || !s.renderer || !s.scene || !s.camera) {
+        return { ok: false, reason: 'renderer/scene/camera missing on kkState' };
+      }
+      const r = s.renderer;
+      try { r.setRenderTarget(null); r.render(s.scene, s.camera); }
+      catch (e) { return { ok: false, reason: 'render threw: ' + (e && e.message) }; }
+      let gl;
+      try { gl = r.getContext(); } catch (_) { return { ok: false, reason: 'getContext threw' }; }
+      const cv = r.domElement;
+      const w = cv.width | 0, h = cv.height | 0;
+      if (w < 2 || h < 2) return { ok: false, reason: 'canvas too small ' + w + 'x' + h };
+      const pts = [[0.5, 0.5], [0.42, 0.5], [0.58, 0.5], [0.5, 0.42], [0.5, 0.58]];
+      const buf = new Uint8Array(4);
+      let maxLum = 0;
+      for (const [fx, fy] of pts) {
+        const x = Math.min(w - 1, Math.max(0, Math.floor(w * fx)));
+        const y = Math.min(h - 1, Math.max(0, Math.floor(h * fy)));
+        gl.readPixels(x, y, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, buf);
+        const lum = 0.2126 * buf[0] + 0.7152 * buf[1] + 0.0722 * buf[2];
+        if (lum > maxLum) maxLum = lum;
+      }
+      return { ok: true, maxLum, w, h };
+    });
+    let p13Pass, p13Reason;
+    if (!pv.ok) { p13Pass = false; p13Reason = pv.reason; }
+    else if (!(pv.maxLum > 2)) { p13Pass = false; p13Reason = 'center render is black (maxLum=' + pv.maxLum.toFixed(1) + ') — empty/failed cave render'; }
+    else if (!(caveShotBytes > 8000)) { p13Pass = false; p13Reason = 'screenshot too small (' + caveShotBytes + 'B) — capture failed'; }
+    else { p13Pass = true; p13Reason = 'cave renders (center maxLum=' + pv.maxLum.toFixed(1) + ', shot=' + caveShotBytes + 'B @ ' + pv.w + 'x' + pv.h + ')'; }
+    console.log('phase 13 (cave visual): ' + (p13Pass ? 'PASS' : 'FAIL') + ' — ' + p13Reason);
+    console.log('  cave screenshot: ' + caveShot + ' (' + caveShotBytes + 'B)');
+
     // ── Summary ───────────────────────────────────────────────────────────
     const runtimeSec = ((Date.now() - t0) / 1000).toFixed(1);
 
@@ -825,20 +877,21 @@ async function main() {
     console.log('phase 10 (stalagmites):          ' + (p10.ok ? 'PASS' : 'FAIL'));
     console.log('phase 11 (mushrooms):            ' + (p11.ok ? 'PASS' : 'FAIL'));
     console.log('phase 12 (sigil floor):          ' + (p12.ok ? 'PASS' : 'FAIL'));
+    console.log('phase 13 (cave visual):          ' + (p13Pass ? 'PASS' : 'FAIL'));
     console.log('runtime: ' + runtimeSec + 's');
     console.log('console.errors:  ' + consoleErrors.length);
     for (const e of consoleErrors) console.log('  - ' + e);
     console.log('pageerrors:      ' + pageErrors.length);
     for (const e of pageErrors) console.log('  - ' + e);
 
-    const hardFail = !p1Pass || !p2.ok || !p3.ok || !p4.ok || !p5.ok || !p6.ok || !p7.ok || !p8.ok || !p9.ok || !p10.ok || !p11.ok || !p12.ok || pageErrors.length > 0;
+    const hardFail = !p1Pass || !p2.ok || !p3.ok || !p4.ok || !p5.ok || !p6.ok || !p7.ok || !p8.ok || !p9.ok || !p10.ok || !p11.ok || !p12.ok || !p13Pass || pageErrors.length > 0;
     if (hardFail) {
       console.error('[smoke-cave] FAIL — phases='
-                    + (p1Pass?1:0) + (p2.ok?1:0) + (p3.ok?1:0) + (p4.ok?1:0) + (p5.ok?1:0) + (p6.ok?1:0) + (p7.ok?1:0) + (p8.ok?1:0) + (p9.ok?1:0) + (p10.ok?1:0) + (p11.ok?1:0) + (p12.ok?1:0)
+                    + (p1Pass?1:0) + (p2.ok?1:0) + (p3.ok?1:0) + (p4.ok?1:0) + (p5.ok?1:0) + (p6.ok?1:0) + (p7.ok?1:0) + (p8.ok?1:0) + (p9.ok?1:0) + (p10.ok?1:0) + (p11.ok?1:0) + (p12.ok?1:0) + (p13Pass?1:0)
                     + ' pageerrors=' + pageErrors.length);
       exitCode = 1;
     } else {
-      console.log('[smoke-cave] OK — cohort 11 phases 1..12 passed');
+      console.log('[smoke-cave] OK — cohort 11 phases 1..13 passed (incl. CC7 render gate)');
       console.log('[smoke-cave] cohort 12…N will add rooms / boss / reaper '
                   + '— see docs/STAGE_AUTHORING.md §7');
     }
