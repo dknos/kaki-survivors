@@ -1336,15 +1336,19 @@ export function damageEnemy(enemy, dmg, source) {
   }
 
   if (enemy.hp <= 0) {
-    // Kill — bigger hit-stop. Shake on trash kills is intentionally OMITTED:
-    // a prior fix found that per-trash-kill shake makes the camera vibrate
-    // continuously during swarm clears. The per-heavy-hit shake above already
-    // fired on the killing blow itself (most kill shots are >=10% maxHP), so
-    // adding more shake here is redundant for the player.
-    const stopDur = enemy.elite ? 0.12 : 0.04;
-    const shakeAmt = enemy.elite ? 0.40 : 0.0;
-    if (state.fx.hitStop < stopDur) state.fx.hitStop = stopDur;
-    if (shakeAmt > 0 && state.fx.shake < shakeAmt) state.fx.shake = shakeAmt;
+    // Kill hit-stop + shake are RESERVED for elites/bosses. Trash kills get
+    // neither: in a swarm you kill ~20-30 trash/sec, and main.js freezes the
+    // world (logicDt=0) while state.fx.hitStop>0 — a 40ms freeze on every trash
+    // kill keeps the world frozen most of the time, which reads as a per-hit
+    // fps STUTTER, not impact weight. The shake was already omitted here for the
+    // same swarm reason; the freeze had been left in, which was the real cause.
+    // Big kills are rare enough that the freeze stays a satisfying punctuation.
+    const bigKill = enemy.elite || enemy.isMiniBoss || enemy.isFinalBoss;
+    if (bigKill) {
+      const stopDur = enemy.isFinalBoss ? 0.16 : (enemy.isMiniBoss ? 0.14 : 0.12);
+      if (state.fx.hitStop < stopDur) state.fx.hitStop = stopDur;
+      if (state.fx.shake < 0.40) state.fx.shake = 0.40;
+    }
     killEnemy(enemy);
   }
 }
