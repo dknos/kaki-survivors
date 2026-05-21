@@ -231,6 +231,10 @@ export function initInput() {
   // ── Mouse wheel zoom (steps one notch per click, clamped to unlocks) ──
   let _wheelCD = 0;
   window.addEventListener('wheel', (e) => {
+    // Don't hijack the wheel for camera zoom when the pointer is over an open
+    // modal — let its overflow-y:auto scroll. The game is paused while any
+    // dialog is open, so zoom-while-dialog is meaningless anyway.
+    if (e.target && e.target.closest && e.target.closest('[role="dialog"]')) return;
     e.preventDefault();
     const now = performance.now();
     if (now < _wheelCD) return;        // throttle: one notch per ~120ms
