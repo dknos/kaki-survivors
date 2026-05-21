@@ -5088,8 +5088,8 @@ export function showOptions() {
     pointer-events: auto;
     font-family: ${F.body};
     z-index: 120;
-    overflow-y: auto;
-    padding: 40px 20px;
+    overflow: hidden;
+    padding: 26px 20px;
   `;
 
   const title = document.createElement('div');
@@ -5098,13 +5098,16 @@ export function showOptions() {
   title.style.cssText = `font-family: ${F.display}; font-weight: 900;
     letter-spacing: 0.20em; color: ${C.cyan};
     text-shadow: 0 2px 14px rgba(0,0,0,0.5);
-    margin-bottom: 18px;`;
+    margin-bottom: 14px; flex: 0 0 auto;`;
 
-  // Wrapper that hosts all sections, scrollable when long.
+  // Active-tab content host — shows ONE section at a time. flex min-height:0
+  // is the non-obvious bit: without it the flex column's intrinsic min-content
+  // height defeats overflow-y, so a tall tab (Display) clips instead of scrolls.
   const wrap = document.createElement('div');
   wrap.style.cssText = `
+    flex: 1 1 auto; min-height: 0; overflow-y: auto;
     display: flex; flex-direction: column; gap: 18px;
-    width: min(560px, 100%); color: ${C.text};
+    width: min(560px, 100%); color: ${C.text}; padding: 2px;
   `;
 
   // ── helpers ──
@@ -5314,12 +5317,11 @@ export function showOptions() {
   sCtrl.appendChild(row('Manual Aim',         aimTgl, 'Mouse target for autoaim/volley'));
   sCtrl.appendChild(row('Controller Deadzone', deadzoneSlider, '0.00 (twitchy) to 0.30 (lazy)'));
 
-  // ─── Section: Accessibility (i18n stub) ───
-  const sA11y = sectionBox('Accessibility');
+  // Language (i18n stub) — folded into Display so it isn't a lonely 1-row tab.
   const langSel = mkSelect([
     { value: 'en', label: 'English' },
   ], meta.optLanguage || 'en', v => setOption('optLanguage', v));
-  sA11y.appendChild(row('Language', langSel, 'More languages post-1.0'));
+  sDisp.appendChild(row('Language', langSel, 'More languages post-1.0'));
 
   // ─── Section: Modes (unlock-gated) ───
   const sMode = sectionBox('Modes');
@@ -5496,20 +5498,63 @@ export function showOptions() {
   });
   sData.appendChild(row('Reset Progress', resetBtn, 'Wipes coins, embers, unlocks, runs'));
 
-  // Append sections
-  wrap.appendChild(sAudio);
-  wrap.appendChild(sDisp);
-  wrap.appendChild(sCtrl);
-  wrap.appendChild(sA11y);
-  wrap.appendChild(sMode);
-  wrap.appendChild(sData);
+  // ── Tabbed categories ──
+  // Replaces the old single tall scroll (6 stacked sections overflowed the
+  // viewport and the global wheel-zoom handler ate the scroll). Now one
+  // category shows at a time; wrap still scrolls if a tab is taller than the
+  // window (Display on a short screen).
+  const TABS = [
+    { label: 'Audio',    box: sAudio },
+    { label: 'Display',  box: sDisp  },
+    { label: 'Controls', box: sCtrl  },
+    { label: 'Modes',    box: sMode  },
+    { label: 'Data',     box: sData  },
+  ];
+  const tabBar = document.createElement('div');
+  tabBar.setAttribute('role', 'tablist');
+  tabBar.setAttribute('aria-label', 'Options categories');
+  tabBar.style.cssText = `display: flex; flex-wrap: wrap; gap: 8px;
+    justify-content: center; width: min(560px, 100%);
+    margin-bottom: 14px; flex: 0 0 auto;`;
+  const tabBtns = [];
+  function selectTab(i) {
+    for (let k = 0; k < TABS.length; k++) {
+      const on = k === i;
+      const b = tabBtns[k];
+      b.setAttribute('aria-selected', String(on));
+      b.tabIndex = on ? 0 : -1;
+      b.style.color = on ? C.cyan : 'rgba(245,239,225,0.6)';
+      b.style.borderColor = on ? C.cyan : C.edge;
+      b.style.boxShadow = on
+        ? '0 0 12px rgba(34,224,224,0.25), 0 1px 0 rgba(255,255,255,0.05) inset'
+        : 'none';
+      b.style.background = on
+        ? 'linear-gradient(180deg, rgba(18,40,40,0.88), rgba(8,20,20,0.92))'
+        : 'linear-gradient(180deg, rgba(20,28,22,0.70), rgba(8,14,12,0.80))';
+    }
+    wrap.replaceChildren(TABS[i].box);
+    wrap.scrollTop = 0;
+  }
+  TABS.forEach((t, i) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'kk-fs-sm';
+    b.setAttribute('role', 'tab');
+    b.textContent = t.label;
+    b.style.cssText = `padding: 7px 16px; cursor: pointer; border: 1px solid ${C.edge};
+      border-radius: 7px; font-family: ${F.display}; font-weight: 700;
+      letter-spacing: 0.18em; text-transform: uppercase; transition: all 0.12s ease;`;
+    b.addEventListener('click', () => selectTab(i));
+    tabBtns.push(b);
+    tabBar.appendChild(b);
+  });
 
   // Footer button row — Close + Return-to-Main-Menu side by side.
   // Menu button only renders if we're mid-run or in a sub-mode (town /
   // catacomb / interior); on the start screen itself there's nothing to
   // return from, so only Close shows.
   const footer = document.createElement('div');
-  footer.style.cssText = `display:flex; gap:14px; margin-top:20px; flex-wrap:wrap; justify-content:center;`;
+  footer.style.cssText = `display:flex; gap:14px; margin-top:18px; flex-wrap:wrap; justify-content:center; flex:0 0 auto;`;
 
   const close = document.createElement('button');
   close.type = 'button';
@@ -5533,8 +5578,10 @@ export function showOptions() {
   }
 
   _optionsPanel.appendChild(title);
+  _optionsPanel.appendChild(tabBar);
   _optionsPanel.appendChild(wrap);
   _optionsPanel.appendChild(footer);
+  selectTab(0);
   _root.appendChild(_optionsPanel);
 
   state.time.paused = true;
