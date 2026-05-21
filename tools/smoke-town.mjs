@@ -85,5 +85,18 @@ assert.ok(/_applyGateBiome\(getMeta\(\)\.selectedStage\)/.test(town), "town.js: 
 assert.ok(/setOption\('townVisits'[\s\S]*?_applyGateBiome\(getMeta\(\)\.selectedStage\)/.test(town), "town.js: gate biome not refreshed in enterTown");
 ok('biome gate dressing: _GATE_BIOME map + planter builder + selectedStage-keyed apply (build + enterTown refresh)');
 
+// 8: CC8 town run-launch flourish (gate-activation flare)
+assert.ok(/function _triggerGateLaunch\(/.test(town), "town.js: _triggerGateLaunch missing");
+assert.ok(/const GATE_FLOURISH_SEC\s*=/.test(town), "town.js: GATE_FLOURISH_SEC const missing");
+// gate E now routes through the flourish, not a direct _onGateActivate() call
+assert.ok(/_activeKey === 'gate' && _onGateActivate\) _triggerGateLaunch\(\)/.test(town), "town.js: gate E does not route through the launch flourish");
+// portal light stored for the flare spike + the flare window read in tickTown
+assert.ok(/_portalLight\s*=\s*pl/.test(town), "town.js: portal light not stored for the flare spike");
+assert.ok(/_gateFlourishUntil/.test(town), "town.js: flare-window state (_gateFlourishUntil) not used in tickTown");
+// CRITICAL: the real launch still fires after the flare (deferred via setTimeout) —
+// guards against an orphaned flourish that never starts the run.
+assert.ok(/setTimeout\([\s\S]*?_onGateActivate\(\)/.test(town), "town.js: _onGateActivate not invoked after the flare (orphaned launch)");
+ok('gate-launch flourish: _triggerGateLaunch + GATE_FLOURISH_SEC + portal light spike + deferred _onGateActivate');
+
 console.log(`\npass=${pass} fail=0`);
 console.log('ALL CHECKS PASS');

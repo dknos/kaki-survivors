@@ -34,10 +34,16 @@ const FENCE_R = 22;
 
 let _group = null;
 let _portal = null;
+let _portalLight = null;            // portal PointLight (CC8 gate-launch flare spike)
 let _promptEl = null;
 let _promptBinding = null;
 let _activeKey = null;
 let _onGateActivate = null;
+// CC8 gate-launch flourish — a brief "whoosh into the adventure" beat on gate E
+// before the real run-start fires. The flare itself is animated in tickTown.
+let _gateFlourishUntil = 0;         // state.time.real when the launch flare ends
+let _gateLaunchPending = false;     // guard: ignore repeat E during the flare
+const GATE_FLOURISH_SEC = 0.26;     // flare duration before run-start (tunable feel knob)
 const _handlers = {};
 
 // Static interactables — character statues are appended dynamically in buildTown.
@@ -172,6 +178,7 @@ function _makeAdventureGate() {
   const pl = new THREE.PointLight(0x7fffd4, 1.8, 14, 2);
   pl.position.set(0, 1.6, 0);
   g.add(pl);
+  _portalLight = pl;   // CC8: spiked during the gate-launch flare
   return g;
 }
 
@@ -899,11 +906,27 @@ function _selectChar(id) {
   if (_promptEl) _promptEl.textContent = `★  Now playing as ${ch.name}`;
 }
 
+// CC8 — gate-launch flourish. On E at the gate, flare the portal (disc swell +
+// opacity + light spike, animated in tickTown) for GATE_FLOURISH_SEC, then run
+// the real launch handler. A brief "whoosh into the adventure" beat instead of
+// an instant cut; the voidTeleport sfx (0.95s whoosh+chime) carries across the
+// transition. Guarded so a repeat E during the flare is a no-op.
+function _triggerGateLaunch() {
+  if (_gateLaunchPending) return;
+  _gateLaunchPending = true;
+  _gateFlourishUntil = state.time.real + GATE_FLOURISH_SEC;
+  try { sfx.voidTeleport && sfx.voidTeleport(); } catch (_) {}
+  setTimeout(() => {
+    _gateLaunchPending = false;
+    if (_onGateActivate) _onGateActivate();
+  }, GATE_FLOURISH_SEC * 1000);
+}
+
 function _onKeyDown(e) {
   if (state.mode !== 'town') return;
   if (e.code !== 'KeyE' && e.code !== 'Enter') return;
   if (!_activeKey) return;
-  if (_activeKey === 'gate' && _onGateActivate) _onGateActivate();
+  if (_activeKey === 'gate' && _onGateActivate) _triggerGateLaunch();
   else if (_activeKey.startsWith('char:')) _selectChar(_activeKey.slice(5));
   else if (_handlers[_activeKey]) _handlers[_activeKey]();
 }
@@ -928,6 +951,8 @@ export function enterTown() {
   // Refresh gate biome dressing — selectedStage may have changed since the last
   // town visit (stage is picked in menuV2).
   try { _applyGateBiome(getMeta().selectedStage); } catch (_) {}
+  // Reset the gate-launch flare guard so a fresh town visit can re-trigger it.
+  _gateLaunchPending = false; _gateFlourishUntil = 0;
   // Spawn just inside the plaza, facing the gate
   state.hero.pos.set(0, 0, 6);
   state.hero.vel.set(0, 0, 0);
@@ -974,9 +999,19 @@ export function tickTown(dt) {
   // Animate portal — gentle scale pulse + opacity sine
   const t = state.time.real;
   if (_portal) {
-    const s = 1 + 0.08 * Math.sin(t * 2.6);
-    _portal.scale.set(s, s, s);
-    _portal.material.opacity = 0.50 + 0.18 * Math.sin(t * 2.6 + 0.4);
+    if (t < _gateFlourishUntil) {
+      // CC8 launch flare — disc swells + brightens toward the cut (k: 0→1).
+      const k = 1 - (_gateFlourishUntil - t) / GATE_FLOURISH_SEC;
+      const s = 1 + 1.6 * k;
+      _portal.scale.set(s, s, s);
+      _portal.material.opacity = Math.min(1, 0.55 + 0.5 * k);
+      if (_portalLight) _portalLight.intensity = 1.8 + 4.0 * k;
+    } else {
+      const s = 1 + 0.08 * Math.sin(t * 2.6);
+      _portal.scale.set(s, s, s);
+      _portal.material.opacity = 0.50 + 0.18 * Math.sin(t * 2.6 + 0.4);
+      if (_portalLight) _portalLight.intensity = 1.8;
+    }
   }
   // Animate selected statue ring (rotate + opacity pulse) and gentle bob.
   // After the iter 10b swap, the X-rotation is baked into the PlaneGeometry,
