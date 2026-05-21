@@ -110,6 +110,11 @@ const SPRITE_FLASH_STRENGTH = 0.85;
 // spawn path used to pass tier.scale RAW as the absolute sprite height → sprites
 // came out ~half size ("tiny mobs"). Tunable: bump if baked-frame padding reads short.
 const SPRITE_FIT_HEIGHT = 2.0;
+// Minimum billboard world-height. Floors the small insect tiers (bee/roach/
+// ladybug, roster scale 0.55-0.70 → 1.1-1.4u raw) so the late waves that unlock
+// them don't read as tiny specks. Tiers ≥0.75 (zombie/goblin/orc/wolf/…) clear
+// the floor and keep their roster size, preserving the big/small hierarchy.
+const SPRITE_MIN_HEIGHT = 1.5;
 
 // Free a dead/retired enemy's visual + recycle its mesh into the right pool.
 // Sprite enemies: kill the billboard slot + recycle the bare anchor (must NOT
@@ -405,7 +410,7 @@ export function spawnEnemy(tierConfig, x, z) {
   if (wantSprite) {
     spriteSlot = spawnSprite('enemies', {
       x, y: 0.06, z,
-      scale: tierConfig.spriteScale || (tierConfig.scale || 1) * SPRITE_FIT_HEIGHT,
+      scale: tierConfig.spriteScale || Math.max(SPRITE_MIN_HEIGHT, (tierConfig.scale || 1) * SPRITE_FIT_HEIGHT),
       anim: key,
     });
     if (spriteSlot >= 0) {
