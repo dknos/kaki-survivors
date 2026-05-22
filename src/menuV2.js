@@ -22,6 +22,7 @@
 import { getMeta, selectedStage, setOption, selectedAvatar } from './meta.js';
 import { STAGES, CHARACTERS, AVATARS } from './config.js';
 import { createCharCarousel } from './charCarousel.js';
+import { createHeroSplash } from './menuHeroSplash.js';
 import { state } from './state.js';
 // PHASE 1 P1B — Achievement chain title-screen indicator (Achievements: N/Total).
 import { mountTitlePanel as _mountAchievementsTitlePanel } from './forestAchievements.js';
@@ -107,6 +108,7 @@ let _styleEl    = null;
 let _fontsEl    = null;
 let _activeNav  = 'play';
 let _carousel   = null;
+let _heroSplash = null;
 let _overlay    = null;
 let _selectedStageId = null;
 
@@ -186,6 +188,7 @@ export function hideMenuV2() {
     _fitHandler = null;
   }
   if (_carousel) { try { _carousel.destroy(); } catch (_) {} _carousel = null; }
+  if (_heroSplash) { try { _heroSplash.destroy(); } catch (_) {} _heroSplash = null; }
   if (_overlay && _overlay.parentNode) { _overlay.parentNode.removeChild(_overlay); _overlay = null; }
   if (_menuRoot && _menuRoot.parentNode) _menuRoot.parentNode.removeChild(_menuRoot);
   _menuRoot = null;
@@ -310,8 +313,22 @@ function _buildHeroSilhouette() {
   rim.style.background = `radial-gradient(ellipse at 50% 35%, ${TONE.glow} 0%, transparent 55%)`;
   wrap.appendChild(rim);
 
-  // SVG hero — lifted verbatim from HeroCharacter component
-  wrap.appendChild(_svg(`
+  // Iter 37 — real 3D hero model splash. Show the selected avatar's GLB (the
+  // same model the in-game hero + Heroes carousel render, tinted/scaled),
+  // slow-rotating, instead of the static SVG. Falls back to the SVG below
+  // when the hero GLTF isn't cached yet (createHeroSplash returns null).
+  if (_heroSplash) { try { _heroSplash.destroy(); } catch (_) {} _heroSplash = null; }
+  {
+    const meta = getMeta();
+    const avId = (meta && meta.selectedAvatar) || 'kitty';
+    const av = CHARACTERS.find((c) => c.id === avId) || CHARACTERS[0] || {};
+    try {
+      _heroSplash = createHeroSplash(wrap, { avatarId: avId, tint: av.tint, scaleMul: av.scaleMul, glb: av.glb });
+    } catch (_) { _heroSplash = null; }
+  }
+
+  // SVG hero — lifted verbatim from HeroCharacter component (fallback only)
+  if (!_heroSplash) wrap.appendChild(_svg(`
     <svg class="kkv2-hero-svg" viewBox="0 0 600 900" preserveAspectRatio="xMidYMid meet">
       <defs>
         <linearGradient id="kkv2-hero-body" x1="0" y1="0" x2="0" y2="1">
