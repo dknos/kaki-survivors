@@ -87,7 +87,8 @@
 }
 
 /* Particles */
-.kkv2-particles { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+.kkv2-particles { position: absolute; inset: 0; pointer-events: none; overflow: hidden; animation: kkv2-hue 14s linear infinite; }
+@keyframes kkv2-hue { to { filter: hue-rotate(360deg); } }
 .kkv2-pcl {
   position: absolute;
   border-radius: 50%;

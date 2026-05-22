@@ -454,8 +454,11 @@ function _buildParticles(parent) {
     p.style.top  = `${top}%`;
     p.style.width  = `${size}px`;
     p.style.height = `${size}px`;
-    p.style.background = TONE.hi;
-    p.style.boxShadow  = `0 0 ${size * 4}px ${size * 0.6}px ${TONE.glow}`;
+    // Rainbow embers: each mote a distinct hue spread across the spectrum
+    // (+ jitter so it isn't a clean gradient). The wrap slow-cycles hue-rotate.
+    const hue = Math.round((i / 32) * 360 + Math.random() * 26);
+    p.style.background = `hsl(${hue}, 95%, 64%)`;
+    p.style.boxShadow  = `0 0 ${size * 4}px ${size * 0.6}px hsl(${hue}, 95%, 60%)`;
     p.style.animationDelay    = `${delay}s`;
     p.style.animationDuration = `${dur}s`;
     p.style.setProperty('--sway', `${sway}px`);
