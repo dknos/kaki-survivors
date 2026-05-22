@@ -237,6 +237,17 @@ function _buildHeroScene(parent) {
   const scene = document.createElement('div');
   scene.className = 'kkv2-scene';
 
+  // Pixel-art bedroom background (Grok). Replaces the procedural forest scene
+  // below (kept but unreachable while the photo bg is active). The dancing
+  // hero splash layers on top; vignette/grain (added separately) scrims it for
+  // text readability.
+  const photobg = document.createElement('div');
+  photobg.className = 'kkv2-photobg';
+  scene.appendChild(photobg);
+  scene.appendChild(_buildHeroSilhouette());
+  parent.appendChild(scene);
+  return;
+
   // sky gradient
   const sky = document.createElement('div');
   sky.className = 'kkv2-sky';

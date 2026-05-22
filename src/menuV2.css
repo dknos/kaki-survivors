@@ -30,6 +30,7 @@
 
 /* ─── Scene ─────────────────────────────────────────────── */
 .kkv2-scene { position: absolute; inset: 0; }
+.kkv2-photobg { position: absolute; inset: 0; background: url("../assets/sprites/menu-bg.png") center center / cover no-repeat; }
 .kkv2-sky { position: absolute; inset: 0; }
 .kkv2-halo {
   position: absolute; left: 56%; top: 8%;
