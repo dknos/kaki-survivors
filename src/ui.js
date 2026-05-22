@@ -667,6 +667,23 @@ function injectCSS() {
       /* Modal containers — clamp padding so headers don't bleed off-screen. */
       .kk-death, .kk-start { padding: 18px 10px !important; }
     }
+    /* Iter 30 — every full-screen menu must fit-with-scroll, never clip.
+       The old centered modals (level-up, death) predate the
+       flex-start + overflow-y:auto pattern the casino/shop/grimoire/etc.
+       menus already use. A centered flex container WITH overflow clips
+       BOTH ends — the top scrolls out of reach. "safe center" keeps the
+       centered look while content fits and falls back to start-alignment
+       (top reachable) once it overflows; overflow-y then lets it scroll.
+       The plain center first-declaration is a fallback for any engine
+       that cannot parse "safe center" (parser keeps the last valid one). */
+    .kk-modal, .kk-death {
+      justify-content: center;
+      justify-content: safe center;
+      overflow-y: auto; overflow-x: hidden;
+      overscroll-behavior: contain;
+      -webkit-overflow-scrolling: touch;
+      padding: clamp(16px, 4vh, 40px) 16px;
+    }
     /* Catch-all — never let any modal overflow horizontally. */
     body { overflow-x: hidden; }
   `;
@@ -1604,6 +1621,7 @@ function showAvatarUnlockModal(avatar) {
   const card = document.createElement('div');
   card.style.cssText = `
     min-width:320px; max-width:480px;
+    max-height:90%; overflow-y:auto; overflow-x:hidden;
     padding:24px 28px;
     background:linear-gradient(180deg, rgba(22,32,26,0.96), rgba(8,14,12,0.98));
     border:1px solid rgba(255,210,127,0.55);
@@ -3219,10 +3237,16 @@ export function showSlotMachine() {
     backdrop-filter: blur(10px);
     -webkit-backdrop-filter: blur(10px);
     display: flex; flex-direction: column;
-    align-items: center; justify-content: center;
+    align-items: center;
+    justify-content: center;
+    justify-content: safe center;
+    overflow-y: auto; overflow-x: hidden;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
     pointer-events: auto;
     font-family: ${F.body};
     z-index: 105;
+    padding: clamp(16px, 4vh, 40px) 16px;
   `;
 
   const title = document.createElement('div');
@@ -5088,7 +5112,9 @@ export function showOptions() {
     pointer-events: auto;
     font-family: ${F.body};
     z-index: 120;
-    overflow: hidden;
+    overflow-y: auto; overflow-x: hidden;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
     padding: 26px 20px;
   `;
 
@@ -5607,6 +5633,7 @@ function _showResetConfirmModal(onConfirm) {
     background: linear-gradient(180deg, rgba(40,15,15,0.95), rgba(20,8,8,0.97));
     border: 2px solid ${C.red}; border-radius: 12px;
     padding: 24px 30px; min-width: min(360px, 90vw); max-width: 460px;
+    max-height: 90%; overflow-y: auto; overflow-x: hidden;
     color: ${C.text};
     box-shadow: 0 16px 36px rgba(0,0,0,0.65), 0 0 22px rgba(255,94,94,0.25);
     display: flex; flex-direction: column; gap: 12px;
@@ -6671,6 +6698,7 @@ export function showContextLossModal() {
       0 24px 48px rgba(0,0,0,0.6),
       0 0 28px ${C.red}33;
     padding: 28px 36px; min-width: min(360px, 90vw); max-width: 480px; text-align: center;
+    max-height: 90%; overflow-y: auto; overflow-x: hidden;
   `;
 
   const icon = document.createElement('div');
