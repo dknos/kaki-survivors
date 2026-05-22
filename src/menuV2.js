@@ -319,11 +319,12 @@ function _buildHeroSilhouette() {
   // when the hero GLTF isn't cached yet (createHeroSplash returns null).
   if (_heroSplash) { try { _heroSplash.destroy(); } catch (_) {} _heroSplash = null; }
   {
-    const meta = getMeta();
-    const avId = (meta && meta.selectedAvatar) || 'kitty';
-    const av = CHARACTERS.find((c) => c.id === avId) || CHARACTERS[0] || {};
+    // Feature Sote — the bespoke 2nd hero (real sote.glb, not the donor) — as
+    // the title-screen marquee model. (AVATARS, not CHARACTERS: the cosmetic
+    // roster is where the per-avatar GLBs live.)
+    const av = AVATARS.find((a) => a.id === 'sote') || AVATARS[0] || {};
     try {
-      _heroSplash = createHeroSplash(wrap, { avatarId: avId, tint: av.tint, scaleMul: av.scaleMul, glb: av.glb });
+      _heroSplash = createHeroSplash(wrap, { avatarId: av.id, tint: av.tint, scaleMul: av.scaleMul, glb: av.glb });
     } catch (_) { _heroSplash = null; }
   }
 
