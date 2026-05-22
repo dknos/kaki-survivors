@@ -907,9 +907,12 @@ export function killEnemy(enemy) {
     spawnKillRing(enemy.mesh.position.x, enemy.mesh.position.z, true);
   }
 
-  // Drops: heart (HP) and star (gem vacuum). Elites guaranteed-ish.
+  // Drops: heart (HP) and star (gem vacuum). Healing-rebalance 2026-05-21
+  // (user-authorized): heart frequency ~halved — elite 1.0 → 0.5 (no longer a
+  // guaranteed heart on every elite), normal 0.05 → 0.025. A found heart still
+  // heals the full 25, just drops "much rarer" per the design intent.
   if (!enemy.isFinalBoss) {
-    const heartRoll = enemy.elite ? 1.0 : 0.05;
+    const heartRoll = enemy.elite ? 0.5 : 0.025;
     if (Math.random() < heartRoll) {
       spawnHeart(enemy.mesh.position.x, enemy.mesh.position.z);
     }
@@ -937,17 +940,19 @@ export function killEnemy(enemy) {
     spawnStar(ex, ez + 1.2);
     spawnBomb(ex, ez - 1.2);
   }
-  // Rare drops from regular kills: bomb 0.3%, freeze 0.5%, chicken 0.2%.
+  // Rare drops from regular kills: bomb 0.3%, freeze 0.5%, chicken 0.1%
+  // (chicken halved 0.2%→0.1% in the 2026-05-21 healing rebalance — the
+  // full-heal chicken stays iconic but drops "much rarer").
   if (!enemy.isFinalBoss && !enemy.isMiniBoss) {
     const r = Math.random();
     if (r < 0.003) spawnBomb(enemy.mesh.position.x, enemy.mesh.position.z);
     else if (r < 0.008) spawnFreeze(enemy.mesh.position.x, enemy.mesh.position.z);
-    else if (r < 0.010) spawnChicken(enemy.mesh.position.x, enemy.mesh.position.z);
+    else if (r < 0.009) spawnChicken(enemy.mesh.position.x, enemy.mesh.position.z);
   }
-  // Elites: 8% freeze, 5% chicken (in addition to baseline rolls)
+  // Elites: 8% freeze, 2.5% chicken (chicken halved 5%→2.5%, healing rebalance)
   if (enemy.elite && !enemy.isFinalBoss && !enemy.isMiniBoss) {
     if (Math.random() < 0.08) spawnFreeze(enemy.mesh.position.x, enemy.mesh.position.z);
-    if (Math.random() < 0.05) spawnChicken(enemy.mesh.position.x, enemy.mesh.position.z);
+    if (Math.random() < 0.025) spawnChicken(enemy.mesh.position.x, enemy.mesh.position.z);
   }
   // FOREST-V2-A8 — VS floor pickups (bomb 1% / magnet 2% / chicken 4% gated).
   // One Math.random() roll; chicken HP gate read AT DROP TIME (VS-accurate).

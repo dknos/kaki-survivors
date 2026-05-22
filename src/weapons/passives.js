@@ -88,9 +88,12 @@ export const PASSIVES = [
   },
   {
     id: 'pummarola',name: 'Pummarola',   icon: '🍅', maxLevel: 5,
-    desc: lv => `regen +${(lv * 0.5).toFixed(1)} HP/s`,
+    desc: lv => `regen +${(lv * 0.25).toFixed(2)} HP/s`,
     apply(level/*, prev*/) {
-      state.hero.regenPerSec = 0.5 * level;   // absolute, replaces prev
+      // Healing-rebalance 2026-05-21 (user-authorized, lifts the deferred nerf):
+      // 0.5 → 0.25 HP/s/lv so a stacked tank build can no longer trivially
+      // outheal the swarm. lv5 regen 2.5 → 1.25 HP/s.
+      state.hero.regenPerSec = 0.25 * level;   // absolute, replaces prev
     },
   },
   // ── New passives (iteration 2: combinatorics expansion) ────────────────────
