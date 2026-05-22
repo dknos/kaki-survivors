@@ -907,6 +907,56 @@ async function main() {
     });
     console.log('phase 14 (sky dome): ' + (p14.ok ? 'PASS' : 'FAIL') + ' — ' + p14.reason);
 
+    // ── Phase 15 (P4A cohort 13) — Cave-in environmental hazard ───────────
+    // The cave's signature telegraphed threat. Four assertions:
+    //   (a) caveStage.userData.caveHazardCount >= 1 — builder pooled the rings.
+    //   (b) a hazardRing mesh exists, uses a CanvasTexture map (rune art — NOT
+    //       a bare RingGeometry), tinted slot-4 sigil (0xc87bff), pinned to the
+    //       telegraph floor tier (renderOrder -3) and bloom-tagged. This is the
+    //       FX-quality-bar guard: a flat RingGeometry+MeshBasicMaterial would
+    //       have no .map and would fail here.
+    //   (c) The dispatcher fires when its clock passes the first-fire threshold.
+    //       Headless swiftshader runs ~4fps with clamped dt, so game-clock
+    //       crawls and a wall-clock settle can't reach FIRST_DELAY — so we drive
+    //       the dispatcher deterministically: import the module + call
+    //       tickCaveHazard with a big dt (pushes _clock past threshold, hero is
+    //       live in the run) and assert getCaveHazardTotalSpawned() >= 1.
+    //       Counter-based (not catching a boulder mid-air) per the cohort-4
+    //       drip-probe precedent. Real players at 30-60fps hit it in ~4s.
+    const p15 = await page.evaluate(async () => {
+      const s = window.kkState;
+      if (!s || !s.scene) return { ok: false, reason: 'kkState/scene missing' };
+      const cg = s.scene.getObjectByName('caveStage');
+      if (!cg) return { ok: false, reason: 'caveStage group missing' };
+      const cnt = (cg.userData && cg.userData.caveHazardCount) | 0;
+      if (cnt < 1) return { ok: false, reason: 'caveHazardCount=' + cnt + ' (expected >=1) — builder no-op' };
+      const ring = cg.getObjectByName('caveStage_hazardRing');
+      if (!ring) return { ok: false, reason: 'caveStage_hazardRing missing', cnt };
+      const mat = ring.material;
+      if (!mat || !mat.map || !mat.map.isTexture) {
+        return { ok: false, reason: 'hazard ring has no CanvasTexture map (flat-ring anti-pattern?)', cnt };
+      }
+      const col = (mat.color && mat.color.getHex) ? mat.color.getHex() : -1;
+      if (col !== 0xc87bff) return { ok: false, reason: 'hazard ring color=0x' + col.toString(16) + ' (expected 0xc87bff sigil)', cnt };
+      if (ring.renderOrder !== -3) return { ok: false, reason: 'hazard ring renderOrder=' + ring.renderOrder + ' (expected -3 telegraph tier)', cnt };
+      const bloom = ring.layers && typeof ring.layers.mask === 'number' ? (ring.layers.mask & (1 << 1)) !== 0 : false;
+      if (!bloom) return { ok: false, reason: 'hazard ring not bloom-tagged', cnt };
+      let total = -1;
+      try {
+        const mod = await import('./src/stages/cave/caveHazard.js');
+        // Drive the dispatcher past FIRST_DELAY deterministically (headless fps
+        // can't accumulate it in a settle). The hero is live in the run, so the
+        // dispatcher arms a cave-in volley → totalSpawned increments.
+        if (mod && typeof mod.tickCaveHazard === 'function') mod.tickCaveHazard(6);
+        if (mod && typeof mod.getCaveHazardTotalSpawned === 'function') total = mod.getCaveHazardTotalSpawned() | 0;
+      } catch (e) {
+        return { ok: false, reason: 'caveHazard import failed: ' + (e && e.message), cnt };
+      }
+      if (total < 1) return { ok: false, reason: 'totalSpawned=' + total + ' (dispatcher did not arm — hero dead or no free slot?)', cnt };
+      return { ok: true, reason: 'caveHazardCount=' + cnt + ', rune-tex sigil ring, renderOrder -3 + bloom, totalSpawned=' + total };
+    });
+    console.log('phase 15 (cave-in hazard): ' + (p15.ok ? 'PASS' : 'FAIL') + ' — ' + p15.reason);
+
     // ── Summary ───────────────────────────────────────────────────────────
     const runtimeSec = ((Date.now() - t0) / 1000).toFixed(1);
 
@@ -925,21 +975,22 @@ async function main() {
     console.log('phase 12 (sigil floor):          ' + (p12.ok ? 'PASS' : 'FAIL'));
     console.log('phase 13 (cave visual):          ' + (p13Pass ? 'PASS' : 'FAIL'));
     console.log('phase 14 (sky dome):             ' + (p14.ok ? 'PASS' : 'FAIL'));
+    console.log('phase 15 (cave-in hazard):       ' + (p15.ok ? 'PASS' : 'FAIL'));
     console.log('runtime: ' + runtimeSec + 's');
     console.log('console.errors:  ' + consoleErrors.length);
     for (const e of consoleErrors) console.log('  - ' + e);
     console.log('pageerrors:      ' + pageErrors.length);
     for (const e of pageErrors) console.log('  - ' + e);
 
-    const hardFail = !p1Pass || !p2.ok || !p3.ok || !p4.ok || !p5.ok || !p6.ok || !p7.ok || !p8.ok || !p9.ok || !p10.ok || !p11.ok || !p12.ok || !p13Pass || !p14.ok || pageErrors.length > 0;
+    const hardFail = !p1Pass || !p2.ok || !p3.ok || !p4.ok || !p5.ok || !p6.ok || !p7.ok || !p8.ok || !p9.ok || !p10.ok || !p11.ok || !p12.ok || !p13Pass || !p14.ok || !p15.ok || pageErrors.length > 0;
     if (hardFail) {
       console.error('[smoke-cave] FAIL — phases='
-                    + (p1Pass?1:0) + (p2.ok?1:0) + (p3.ok?1:0) + (p4.ok?1:0) + (p5.ok?1:0) + (p6.ok?1:0) + (p7.ok?1:0) + (p8.ok?1:0) + (p9.ok?1:0) + (p10.ok?1:0) + (p11.ok?1:0) + (p12.ok?1:0) + (p13Pass?1:0) + (p14.ok?1:0)
+                    + (p1Pass?1:0) + (p2.ok?1:0) + (p3.ok?1:0) + (p4.ok?1:0) + (p5.ok?1:0) + (p6.ok?1:0) + (p7.ok?1:0) + (p8.ok?1:0) + (p9.ok?1:0) + (p10.ok?1:0) + (p11.ok?1:0) + (p12.ok?1:0) + (p13Pass?1:0) + (p14.ok?1:0) + (p15.ok?1:0)
                     + ' pageerrors=' + pageErrors.length);
       exitCode = 1;
     } else {
-      console.log('[smoke-cave] OK — cohort 12 phases 1..14 passed (incl. CC7 render gate + sky-dome)');
-      console.log('[smoke-cave] cohort 13…N will add rooms / boss / reaper '
+      console.log('[smoke-cave] OK — cohort 13 phases 1..15 passed (incl. CC7 render gate + sky-dome + cave-in hazard)');
+      console.log('[smoke-cave] cohort 14…N will add boss / rooms '
                   + '— see docs/STAGE_AUTHORING.md §7');
     }
   } catch (e) {

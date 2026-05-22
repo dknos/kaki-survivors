@@ -44,6 +44,7 @@ import { buildCaveStalagmites, disposeCaveStalagmites } from './caveStalagmites.
 import { buildCaveMushrooms, disposeCaveMushrooms } from './caveMushrooms.js';
 import { buildCaveSigilFloor, disposeCaveSigilFloor } from './caveSigilFloor.js';
 import { buildCaveSkyDome, disposeCaveSkyDome } from './caveSkyDome.js';
+import { buildCaveHazard, disposeCaveHazard, tickCaveHazard } from './caveHazard.js';
 import { loadCaveAchievements, tickCaveAchievements } from '../../caveAchievements.js';
 
 const STAGE_GROUP_NAME = 'caveStage';
@@ -185,6 +186,20 @@ export function buildCaveStage(scene) {
   }
   group.userData.skyDome = skyDome;
 
+  // P4A cohort 13: cave-in environmental hazard. Telegraphed falling-stone
+  // strikes near the hero — a rune-ring danger zone (slot-4 sigil) blooms,
+  // pulses ~1.3s, then a slot-2 boulder slams down (damage if inside, dust +
+  // shards + shake). The cave's signature threat (forest's spore-puff
+  // equivalent). Ticked via tickCaveHazard → tickCave. Records the pool size.
+  let hazardCount = 0;
+  try {
+    const built = buildCaveHazard(group);
+    hazardCount = built && built.count ? built.count : 0;
+  } catch (e) {
+    console.warn('[caveStage] buildCaveHazard failed:', e);
+  }
+  group.userData.caveHazardCount = hazardCount;
+
   // P4A cohort 6: register cave-specific achievements into the shared registry
   // (docs/STAGE_AUTHORING.md §8d). Eligibility is scanned in tickCave via
   // tickCaveAchievements — no main.js edit. Idempotent.
@@ -213,6 +228,7 @@ export function tickCave(dt) {
   tickGlowmoss(dt);
   tickCeilingDrips(dt);   // P4A cohort 4 — gravity-fall + landing fade + recycle
   tickGloomshrimp(dt);    // P4A cohort 5 — drift + hero-flee swim
+  tickCaveHazard(dt);     // P4A cohort 13 — cave-in telegraph + impact
   tickCaveAchievements(); // P4A cohort 6 — cave-only achievement eligibility
 }
 
@@ -250,6 +266,9 @@ export function disposeCaveStage(scene) {
   // Sky-dome (cohort 12) owns its big sphere geo + ShaderMaterial; idempotent +
   // self-detaching — drop before the group traverse to avoid double-dispose.
   try { disposeCaveSkyDome(); } catch (_) {}
+  // Cave-in hazard (cohort 13) owns its ring + boulder mesh pool + the shared
+  // rune texture; idempotent + self-detaching — drop before the group traverse.
+  try { disposeCaveHazard(); } catch (_) {}
   // Detach the stage group itself so traversal doesn't race with re-add.
   if (_group.parent) _group.parent.remove(_group);
   _group.traverse((o) => {
