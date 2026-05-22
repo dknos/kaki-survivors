@@ -233,16 +233,22 @@ function _svg(html) {
   return wrap.firstElementChild;
 }
 
+// Pixel-art room backgrounds (Grok). Alternated at random on each menu open —
+// add more files here to widen the rotation.
+const MENU_BGS = ['menu-bg.png', 'menu-bg-night.png'];
+
 function _buildHeroScene(parent) {
   const scene = document.createElement('div');
   scene.className = 'kkv2-scene';
 
-  // Pixel-art bedroom background (Grok). Replaces the procedural forest scene
-  // below (kept but unreachable while the photo bg is active). The dancing
-  // hero splash layers on top; vignette/grain (added separately) scrims it for
+  // Pixel-art room background. Replaces the procedural forest scene below
+  // (kept but unreachable while the photo bg is active). The dancing hero
+  // splash layers on top; vignette/grain (added separately) scrims it for
   // text readability.
   const photobg = document.createElement('div');
   photobg.className = 'kkv2-photobg';
+  const bg = MENU_BGS[Math.floor(Math.random() * MENU_BGS.length)];
+  photobg.style.backgroundImage = `url("${new URL('../assets/sprites/' + bg, import.meta.url).href}")`;
   scene.appendChild(photobg);
   scene.appendChild(_buildHeroSilhouette());
   parent.appendChild(scene);

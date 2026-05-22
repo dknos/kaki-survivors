@@ -280,8 +280,8 @@
 
 /* ─── Continue card (right column) ──────────────────────── */
 .kkv2-continue {
-  position: absolute; right: 56px; top: 50%;
-  transform: translateY(-50%);
+  position: absolute; right: 56px; bottom: 64px; top: auto;
+  transform: none;
   width: 380px;
   padding: 28px 28px 24px;
   background: linear-gradient(135deg, rgba(18,12,8,.78), rgba(6,4,3,.8));
@@ -402,7 +402,10 @@
 
 /* ─── Chapter rail (bottom) ─────────────────────────────── */
 .kkv2-rail {
-  position: absolute; left: 56px; right: 56px; bottom: 88px;
+  position: absolute; left: 56px; bottom: 88px;
+  /* Reserve the bottom-right corner for the run card (right:56 + width:380 +
+     gap) so chapter cards + tabs never sit under it. */
+  right: 452px;
   z-index: 9;
 }
 .kkv2-rail-head {
