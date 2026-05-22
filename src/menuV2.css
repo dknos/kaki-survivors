@@ -549,13 +549,6 @@
 }
 .kkv2-foot-left { display: flex; align-items: center; gap: 12px; }
 .kkv2-version { font-family: "Geist Mono", monospace; color: rgba(236,230,213,.4); }
-.kkv2-sep { color: rgba(236,230,213,.2); }
-.kkv2-online { display: flex; align-items: center; gap: 8px; }
-.kkv2-online-dot {
-  width: 7px; height: 7px; border-radius: 50%;
-  background: #6bd17a;
-  box-shadow: 0 0 8px #6bd17a, 0 0 16px rgba(107,209,122,.4);
-}
 .kkv2-foot-right { display: flex; gap: 22px; }
 .kkv2-key { display: flex; align-items: center; gap: 8px; text-transform: uppercase; font-size: 10px; letter-spacing: 0.16em; }
 .kkv2-key kbd {

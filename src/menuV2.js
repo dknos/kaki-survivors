@@ -869,11 +869,9 @@ function _buildChapterRail(parent) {
   const tCampaign = _tab('Campaign', true);
   const tEndless  = _tab('Endless', false);
   const tDaily    = _tab('Daily', false);
-  const tCoop     = _tab('Co-op', false, true);
   tabs.appendChild(tCampaign);
   tabs.appendChild(tEndless);
   tabs.appendChild(tDaily);
-  tabs.appendChild(tCoop);
 
   head.appendChild(title);
   head.appendChild(tabs);
@@ -1070,22 +1068,7 @@ function _buildFooter(parent) {
   const ver = document.createElement('span');
   ver.className = 'kkv2-version';
   ver.textContent = _versionLabel();
-  const sep = document.createElement('span');
-  sep.className = 'kkv2-sep';
-  sep.textContent = '·';
-  const online = document.createElement('span');
-  online.className = 'kkv2-online';
-  const dot = document.createElement('span');
-  dot.className = 'kkv2-online-dot';
-  const ot = document.createElement('span');
-  // No live player count source; show em-dash placeholder.
-  const playerCount = (state && state.run && state.run.playerCount) || null;
-  ot.textContent = playerCount ? `${playerCount.toLocaleString()} players online` : '— players online';
-  online.appendChild(dot);
-  online.appendChild(ot);
   left.appendChild(ver);
-  left.appendChild(sep);
-  left.appendChild(online);
   // PHASE 1 P1B — Achievements indicator. Click → modal listing all defs.
   try { _mountAchievementsTitlePanel(left); } catch (e) { console.warn('[menuV2.ach]', e); }
 
