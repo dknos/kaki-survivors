@@ -22,7 +22,7 @@ import { showBanner, showNemesisTease, hideNemesisArrow } from './ui.js';
 import { sfx } from './audio.js';
 import { spawnChestNearHero } from './chest.js';
 import { shopLevel, getMeta } from './meta.js';
-import { nameForMiniBoss, FINAL_BOSS_NAME } from './bossTelegraphs.js';
+import { nameForMiniBoss, FINAL_BOSS_NAME, nameForFinalBoss } from './bossTelegraphs.js';
 import { spawnHeart, spawnStar } from './pickups.js';
 import { dropGem } from './xp.js';
 // PHASE 4 P4J (#140) — Telemetry hook for the nemesis kill chokepoint. Static
@@ -487,7 +487,8 @@ export function tickSpawnDirector(dt) {
       try { showBanner('⚠ FINAL BOSS — RETURNED TO GLADE', 4.0, '#ff5e5e'); } catch (_) {}
     }
     spawnFinalBoss();
-    showBanner(`${FINAL_BOSS_NAME.name} — ${FINAL_BOSS_NAME.subtitle.toUpperCase()}`, 3.0, '#ffe14a');
+    const _fb = nameForFinalBoss();   // stage-aware: cave → THE HOLLOW SOVEREIGN
+    showBanner(`${_fb.name} — ${_fb.subtitle.toUpperCase()}`, 3.0, '#ffe14a');
   }
 
   // ── Nemesis Elite (C3 + Punch List #2) ──

@@ -957,6 +957,51 @@ async function main() {
     });
     console.log('phase 15 (cave-in hazard): ' + (p15.ok ? 'PASS' : 'FAIL') + ' — ' + p15.reason);
 
+    // ── Phase 16 (P4A cohort 14) — Cave boss identity (names) ─────────────
+    // The cave reuses forest telegraph mechanics but announces its own named
+    // wardens. Assert (in the live cave run):
+    //   (a) CAVE_MINI_BOSS_NAMES has 3 entries + CAVE_FINAL_BOSS_NAME exists.
+    //   (b) nameForMiniBoss(0) returns the CAVE name (stage-aware resolver fired
+    //       on the cave run) AND it differs from the forest MINI_BOSS_NAMES[0]
+    //       — proves the gate switched and there's no identity overlap.
+    //   (c) nameForFinalBoss() returns CAVE_FINAL_BOSS_NAME, distinct from the
+    //       forest FINAL_BOSS_NAME (THE NIGHTMARE).
+    const p16 = await page.evaluate(async () => {
+      const s = window.kkState;
+      if (!s || !s.run || !s.run.stage || s.run.stage.id !== 'cave') {
+        return { ok: false, reason: 'not on cave run (stage=' + (s && s.run && s.run.stage && s.run.stage.id) + ')' };
+      }
+      let mod;
+      try { mod = await import('./src/bossTelegraphs.js'); }
+      catch (e) { return { ok: false, reason: 'bossTelegraphs import failed: ' + (e && e.message) }; }
+      const caveMini = mod.CAVE_MINI_BOSS_NAMES;
+      const caveFinal = mod.CAVE_FINAL_BOSS_NAME;
+      if (!Array.isArray(caveMini) || caveMini.length < 3) {
+        return { ok: false, reason: 'CAVE_MINI_BOSS_NAMES length=' + (caveMini && caveMini.length) + ' (expected >=3)' };
+      }
+      if (!caveFinal || !caveFinal.name) return { ok: false, reason: 'CAVE_FINAL_BOSS_NAME missing' };
+      if (typeof mod.nameForMiniBoss !== 'function' || typeof mod.nameForFinalBoss !== 'function') {
+        return { ok: false, reason: 'name accessors missing' };
+      }
+      const mini0 = mod.nameForMiniBoss(0);
+      const forestMini0 = mod.MINI_BOSS_NAMES[0];
+      if (!mini0 || mini0.name !== caveMini[0].name) {
+        return { ok: false, reason: 'nameForMiniBoss(0)=' + (mini0 && mini0.name) + ' (expected cave ' + caveMini[0].name + ' — stage gate not firing)' };
+      }
+      if (mini0.name === forestMini0.name) {
+        return { ok: false, reason: 'cave miniboss name === forest name (no identity separation)' };
+      }
+      const fin = mod.nameForFinalBoss();
+      if (!fin || fin.name !== caveFinal.name) {
+        return { ok: false, reason: 'nameForFinalBoss()=' + (fin && fin.name) + ' (expected ' + caveFinal.name + ')' };
+      }
+      if (fin.name === mod.FINAL_BOSS_NAME.name) {
+        return { ok: false, reason: 'cave final name === forest final (THE NIGHTMARE) — gate not firing' };
+      }
+      return { ok: true, reason: 'cave bosses: ' + caveMini[0].name + ' / ' + caveMini[1].name + ' / ' + caveMini[2].name + ' + ' + caveFinal.name + ' (distinct from forest)' };
+    });
+    console.log('phase 16 (cave boss names): ' + (p16.ok ? 'PASS' : 'FAIL') + ' — ' + p16.reason);
+
     // ── Summary ───────────────────────────────────────────────────────────
     const runtimeSec = ((Date.now() - t0) / 1000).toFixed(1);
 
@@ -976,21 +1021,22 @@ async function main() {
     console.log('phase 13 (cave visual):          ' + (p13Pass ? 'PASS' : 'FAIL'));
     console.log('phase 14 (sky dome):             ' + (p14.ok ? 'PASS' : 'FAIL'));
     console.log('phase 15 (cave-in hazard):       ' + (p15.ok ? 'PASS' : 'FAIL'));
+    console.log('phase 16 (cave boss names):      ' + (p16.ok ? 'PASS' : 'FAIL'));
     console.log('runtime: ' + runtimeSec + 's');
     console.log('console.errors:  ' + consoleErrors.length);
     for (const e of consoleErrors) console.log('  - ' + e);
     console.log('pageerrors:      ' + pageErrors.length);
     for (const e of pageErrors) console.log('  - ' + e);
 
-    const hardFail = !p1Pass || !p2.ok || !p3.ok || !p4.ok || !p5.ok || !p6.ok || !p7.ok || !p8.ok || !p9.ok || !p10.ok || !p11.ok || !p12.ok || !p13Pass || !p14.ok || !p15.ok || pageErrors.length > 0;
+    const hardFail = !p1Pass || !p2.ok || !p3.ok || !p4.ok || !p5.ok || !p6.ok || !p7.ok || !p8.ok || !p9.ok || !p10.ok || !p11.ok || !p12.ok || !p13Pass || !p14.ok || !p15.ok || !p16.ok || pageErrors.length > 0;
     if (hardFail) {
       console.error('[smoke-cave] FAIL — phases='
-                    + (p1Pass?1:0) + (p2.ok?1:0) + (p3.ok?1:0) + (p4.ok?1:0) + (p5.ok?1:0) + (p6.ok?1:0) + (p7.ok?1:0) + (p8.ok?1:0) + (p9.ok?1:0) + (p10.ok?1:0) + (p11.ok?1:0) + (p12.ok?1:0) + (p13Pass?1:0) + (p14.ok?1:0) + (p15.ok?1:0)
+                    + (p1Pass?1:0) + (p2.ok?1:0) + (p3.ok?1:0) + (p4.ok?1:0) + (p5.ok?1:0) + (p6.ok?1:0) + (p7.ok?1:0) + (p8.ok?1:0) + (p9.ok?1:0) + (p10.ok?1:0) + (p11.ok?1:0) + (p12.ok?1:0) + (p13Pass?1:0) + (p14.ok?1:0) + (p15.ok?1:0) + (p16.ok?1:0)
                     + ' pageerrors=' + pageErrors.length);
       exitCode = 1;
     } else {
-      console.log('[smoke-cave] OK — cohort 13 phases 1..15 passed (incl. CC7 render gate + sky-dome + cave-in hazard)');
-      console.log('[smoke-cave] cohort 14…N will add boss / rooms '
+      console.log('[smoke-cave] OK — cohort 14 phases 1..16 passed (incl. cave-in hazard + named cave bosses)');
+      console.log('[smoke-cave] cohort 15…N will add rooms / sealed doors '
                   + '— see docs/STAGE_AUTHORING.md §7');
     }
   } catch (e) {

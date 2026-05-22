@@ -282,6 +282,24 @@ export const MINI_BOSS_NAMES = [
 ];
 export const FINAL_BOSS_NAME = { name: 'THE NIGHTMARE', subtitle: 'has come for you' };
 
+// Cave-stage boss identity (P4A cohort 14). The cave reuses the forest
+// telegraph MECHANICS (cone / engulf / quake all read fine underground) but
+// announces its own named wardens so the fights read as the cave's, not a
+// forest re-run. Index order is lockstep with MINI_BOSS_PATTERNS exactly like
+// MINI_BOSS_NAMES — slot 0 owns the lethal Sonic Cone.
+//   NOTE: a tint recolor to slot-4 sigil is a DEFERRED follow-up. makeTell /
+//   resolve / _updateTellMidWindup hardcode the per-pattern color consts
+//   (COL_SONIC etc.) + lightened mote hexes, so palette-recoloring the cave
+//   tells is a broad behavior-preserving refactor — best done once cave combat
+//   has actual user feedback (combat was deferred precisely for that reason).
+//   Names are the safe, high-signal identity layer to ship now.
+export const CAVE_MINI_BOSS_NAMES = [
+  { name: 'GRIMSCALE THE DEEP-DWELLER', subtitle: 'rises from the dark' },
+  { name: 'THE PALE WARDEN',            subtitle: 'guards the hollow'   },
+  { name: 'KALDRETH THE STONEBREAKER',  subtitle: 'splits the vault'    },
+];
+export const CAVE_FINAL_BOSS_NAME = { name: 'THE HOLLOW SOVEREIGN', subtitle: 'wakes beneath the stone' };
+
 const TELEGRAPH_INTERVAL_MINI  = 9.0;
 const TELEGRAPH_INTERVAL_FINAL = 6.0;
 
@@ -303,8 +321,20 @@ export function initBossTelegraphs(scene) {
   _scene = scene;
 }
 
+// True when the active run is the cave stage — selects cave boss names.
+function _onCaveStage() {
+  return !!(state.run && state.run.stage && state.run.stage.id === 'cave');
+}
+
 export function nameForMiniBoss(idx) {
-  return MINI_BOSS_NAMES[idx] || { name: 'NAMELESS HORROR', subtitle: 'arrives' };
+  const names = _onCaveStage() ? CAVE_MINI_BOSS_NAMES : MINI_BOSS_NAMES;
+  return names[idx] || { name: 'NAMELESS HORROR', subtitle: 'arrives' };
+}
+
+// Stage-aware final-boss name. spawnDirector uses this for the spawn banner so
+// the cave announces THE HOLLOW SOVEREIGN, not the forest's THE NIGHTMARE.
+export function nameForFinalBoss() {
+  return _onCaveStage() ? CAVE_FINAL_BOSS_NAME : FINAL_BOSS_NAME;
 }
 
 export function resetBossTelegraphs() {
