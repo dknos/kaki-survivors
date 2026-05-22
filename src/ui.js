@@ -2032,7 +2032,12 @@ export function showDeathScreen() {
   _deathScreen.appendChild(sharePanel);
   _deathScreen.appendChild(btnRow);
   _deathScreen.appendChild(hint);
-  _root.appendChild(_deathScreen);
+  // Mount full-screen menus on <body>, NOT #ui-root: #ui-root lives inside the
+  // aspect-capped #kk-stage (overflow:hidden + load-bearing transform), which
+  // on a portrait phone is a thin letterboxed strip — a fixed,inset:0 child
+  // resolves to that strip and gets clipped. document.body is the same
+  // full-viewport escape hatch the HUD (forestHud/input) already uses.
+  document.body.appendChild(_deathScreen);
   _deathFocusScope = pushFocusScope([retryBtn, shareBtn, townBtn, menuBtn], { layout: 'list' });
 
   const restart = () => {
@@ -5608,7 +5613,9 @@ export function showOptions() {
   _optionsPanel.appendChild(wrap);
   _optionsPanel.appendChild(footer);
   selectTab(0);
-  _root.appendChild(_optionsPanel);
+  // Mount on <body>, not #ui-root — see _deathScreen note: #ui-root is clipped
+  // to the letterboxed stage strip on portrait phones.
+  document.body.appendChild(_optionsPanel);
 
   state.time.paused = true;
 }

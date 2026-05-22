@@ -563,7 +563,11 @@ function _ensureBuilt(reason) {
   const state = _stateRef;
   if (!state) return;
 
-  const root = document.getElementById('ui-root') || document.body;
+  // Mount on <body>, not #ui-root: #ui-root is clipped to the aspect-capped
+  // #kk-stage box (a thin letterboxed strip on portrait phones). The panel is
+  // already position:fixed + max-height:100vh + scroll, so body gives it the
+  // full viewport. Same escape hatch the HUD uses.
+  const root = document.body;
   if (!root) return;
 
   const el = document.createElement('div');
