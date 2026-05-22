@@ -699,7 +699,10 @@ function _showPickerModal(chestIdx) {
     'border:2px solid #d9a648',
     'border-radius:12px',
     'padding:28px 36px',
-    'min-width:520px',
+    'min-width:min(520px, 92vw)',
+    'max-height:90%',
+    'overflow-y:auto',
+    'overflow-x:hidden',
     'box-shadow:0 8px 40px rgba(217,166,72,0.35), 0 2px 0 rgba(255,255,255,0.04) inset',
     'text-align:center',
   ].join(';');
