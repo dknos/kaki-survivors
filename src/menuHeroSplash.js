@@ -24,7 +24,10 @@ import { cloneCached } from './assets.js';
 // Match charCarousel's preview scale (NOT HERO.targetHeight=3.6, which is the
 // in-world scale relative to enemies — far too large at this camera distance).
 const TARGET_HEIGHT = 1.4;
-const SPIN_RATE = 0.45;   // gentle turntable, rad/s
+// Placeholder dance rhythm until menu music lands. A ~110 BPM two-step bop:
+// hop + alternating lean + happy look-around turn + squash-stretch juice.
+// Amplitudes are kept low so the framed bust stays in frame.
+const DANCE_BPM = 110;
 
 /**
  * @param {HTMLElement} host - mount target (.kkv2-hero)
@@ -107,6 +110,7 @@ export function createHeroSplash(host, opts = {}) {
   let _raf = 0;
   let _started = false;
   let lastT = 0;
+  let _t = 0;     // dance clock (seconds)
   let w = 0;
   let h = 0;
 
@@ -131,7 +135,18 @@ export function createHeroSplash(host, opts = {}) {
     const now = performance.now();
     const dt = Math.min(0.05, (now - lastT) / 1000);
     lastT = now;
-    group.rotation.y += SPIN_RATE * dt;
+    _t += dt;
+
+    // ── Dance ──────────────────────────────────────────────────────────
+    const ph = 2 * Math.PI * (DANCE_BPM / 60) * _t;   // beat phase (rad)
+    const bounce = Math.abs(Math.sin(ph * 0.5));      // one hop per beat (0..1)
+    group.position.y = 0.03 * bounce;                  // small hop (head stays framed)
+    group.position.x = 0.15 * Math.sin(_t * 0.8);      // sway side to side
+    group.rotation.z = 0.12 * Math.sin(ph * 0.25);     // alternating lean (two-step)
+    group.rotation.y = 0.5 * Math.sin(_t * 0.8) + _t * 0.16;  // look around + slow drift
+    const sq = 1 + 0.035 * bounce;                     // squash-stretch on the hop
+    group.scale.set(1 / Math.sqrt(sq), sq, 1 / Math.sqrt(sq));
+
     renderer.render(scene, camera);
   }
 
