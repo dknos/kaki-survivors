@@ -45,6 +45,7 @@ import { buildCaveMushrooms, disposeCaveMushrooms } from './caveMushrooms.js';
 import { buildCaveSigilFloor, disposeCaveSigilFloor } from './caveSigilFloor.js';
 import { buildCaveSkyDome, disposeCaveSkyDome } from './caveSkyDome.js';
 import { buildCaveHazard, disposeCaveHazard, tickCaveHazard } from './caveHazard.js';
+import { buildCaveVault, disposeCaveVault, tickCaveVault } from './caveVault.js';
 import { loadCaveAchievements, tickCaveAchievements } from '../../caveAchievements.js';
 
 const STAGE_GROUP_NAME = 'caveStage';
@@ -200,6 +201,20 @@ export function buildCaveStage(scene) {
   }
   group.userData.caveHazardCount = hazardCount;
 
+  // P4A cohort 15: cave sealed vault. A rune-sealed slot-2 stone door at the
+  // arena edge; clearing the horde (kills >= OPEN_KILLS) fails the slot-4 sigil
+  // seal, grinds the slab into the floor, and yields a chest + hearts. The
+  // cave's "sealed door" beat without forest's puzzle/room machinery. Ticked
+  // via tickCaveVault → tickCave. Flags userData for the smoke probe.
+  let caveVault = false;
+  try {
+    const built = buildCaveVault(group);
+    caveVault = !!(built && built.present);
+  } catch (e) {
+    console.warn('[caveStage] buildCaveVault failed:', e);
+  }
+  group.userData.caveVault = caveVault;
+
   // P4A cohort 6: register cave-specific achievements into the shared registry
   // (docs/STAGE_AUTHORING.md §8d). Eligibility is scanned in tickCave via
   // tickCaveAchievements — no main.js edit. Idempotent.
@@ -229,6 +244,7 @@ export function tickCave(dt) {
   tickCeilingDrips(dt);   // P4A cohort 4 — gravity-fall + landing fade + recycle
   tickGloomshrimp(dt);    // P4A cohort 5 — drift + hero-flee swim
   tickCaveHazard(dt);     // P4A cohort 13 — cave-in telegraph + impact
+  tickCaveVault(dt);      // P4A cohort 15 — sealed vault open + reward
   tickCaveAchievements(); // P4A cohort 6 — cave-only achievement eligibility
 }
 
@@ -269,6 +285,9 @@ export function disposeCaveStage(scene) {
   // Cave-in hazard (cohort 13) owns its ring + boulder mesh pool + the shared
   // rune texture; idempotent + self-detaching — drop before the group traverse.
   try { disposeCaveHazard(); } catch (_) {}
+  // Sealed vault (cohort 15) owns its slab + seal geo+mat + stone textures;
+  // idempotent + self-detaching — drop before the group traverse.
+  try { disposeCaveVault(); } catch (_) {}
   // Detach the stage group itself so traversal doesn't race with re-add.
   if (_group.parent) _group.parent.remove(_group);
   _group.traverse((o) => {

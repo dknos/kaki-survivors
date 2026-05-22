@@ -1002,6 +1002,50 @@ async function main() {
     });
     console.log('phase 16 (cave boss names): ' + (p16.ok ? 'PASS' : 'FAIL') + ' — ' + p16.reason);
 
+    // ── Phase 17 (P4A cohort 15) — Cave sealed vault ──────────────────────
+    // The cave's "sealed door" beat. Assert:
+    //   (a) caveStage.userData.caveVault true (builder ran).
+    //   (b) the door mesh is stone-textured (map+normalMap) + slot-2 color, and
+    //       the seal is rune-textured (CanvasTexture map) + slot-4 sigil + bloom
+    //       (FX guard: a flat untextured ring would have no map and fail).
+    //   (c) it OPENS on the clear condition: drive kills past OPEN_KILLS + tick
+    //       the module → getCaveVaultState() reports opened + rewardDropped.
+    const p17 = await page.evaluate(async () => {
+      const s = window.kkState;
+      if (!s || !s.scene || !s.run) return { ok: false, reason: 'kkState/scene/run missing' };
+      const cg = s.scene.getObjectByName('caveStage');
+      if (!cg) return { ok: false, reason: 'caveStage group missing' };
+      if (!(cg.userData && cg.userData.caveVault)) return { ok: false, reason: 'userData.caveVault falsy — builder no-op' };
+      const door = cg.getObjectByName('caveStage_vaultDoor');
+      if (!door) return { ok: false, reason: 'vault door mesh missing' };
+      const dm = door.material;
+      if (!dm || !dm.map || !dm.normalMap) return { ok: false, reason: 'vault door not stone-textured (map+normalMap)' };
+      const dcol = (dm.color && dm.color.getHex) ? dm.color.getHex() : -1;
+      if (dcol !== 0x4a4a52) return { ok: false, reason: 'vault door color=0x' + dcol.toString(16) + ' (expected 0x4a4a52 stone)' };
+      const seal = cg.getObjectByName('caveStage_vaultSeal');
+      if (!seal) return { ok: false, reason: 'vault seal mesh missing' };
+      const sm = seal.material;
+      if (!sm || !sm.map || !sm.map.isTexture) return { ok: false, reason: 'vault seal has no rune CanvasTexture map (flat-ring anti-pattern?)' };
+      const scol = (sm.color && sm.color.getHex) ? sm.color.getHex() : -1;
+      if (scol !== 0xc87bff) return { ok: false, reason: 'vault seal color=0x' + scol.toString(16) + ' (expected 0xc87bff sigil)' };
+      const sbloom = seal.layers && typeof seal.layers.mask === 'number' ? (seal.layers.mask & (1 << 1)) !== 0 : false;
+      if (!sbloom) return { ok: false, reason: 'vault seal not bloom-tagged' };
+      // (c) Drive the open condition deterministically.
+      let st = null;
+      try {
+        const mod = await import('./src/stages/cave/caveVault.js');
+        s.run.kills = 999;                          // horde "cleared"
+        if (typeof mod.tickCaveVault === 'function') { mod.tickCaveVault(0.1); mod.tickCaveVault(2.0); }
+        if (typeof mod.getCaveVaultState === 'function') st = mod.getCaveVaultState();
+      } catch (e) {
+        return { ok: false, reason: 'caveVault import/drive failed: ' + (e && e.message) };
+      }
+      if (!st || !st.opened) return { ok: false, reason: 'vault did not open at kills>=OPEN_KILLS (state=' + JSON.stringify(st) + ')' };
+      if (!st.rewardDropped) return { ok: false, reason: 'vault opened but reward not dropped (state=' + JSON.stringify(st) + ')' };
+      return { ok: true, reason: 'stone-textured door + rune sigil seal (bloom), opens at kills>=80 + reward dropped' };
+    });
+    console.log('phase 17 (cave sealed vault): ' + (p17.ok ? 'PASS' : 'FAIL') + ' — ' + p17.reason);
+
     // ── Summary ───────────────────────────────────────────────────────────
     const runtimeSec = ((Date.now() - t0) / 1000).toFixed(1);
 
@@ -1022,22 +1066,22 @@ async function main() {
     console.log('phase 14 (sky dome):             ' + (p14.ok ? 'PASS' : 'FAIL'));
     console.log('phase 15 (cave-in hazard):       ' + (p15.ok ? 'PASS' : 'FAIL'));
     console.log('phase 16 (cave boss names):      ' + (p16.ok ? 'PASS' : 'FAIL'));
+    console.log('phase 17 (cave sealed vault):    ' + (p17.ok ? 'PASS' : 'FAIL'));
     console.log('runtime: ' + runtimeSec + 's');
     console.log('console.errors:  ' + consoleErrors.length);
     for (const e of consoleErrors) console.log('  - ' + e);
     console.log('pageerrors:      ' + pageErrors.length);
     for (const e of pageErrors) console.log('  - ' + e);
 
-    const hardFail = !p1Pass || !p2.ok || !p3.ok || !p4.ok || !p5.ok || !p6.ok || !p7.ok || !p8.ok || !p9.ok || !p10.ok || !p11.ok || !p12.ok || !p13Pass || !p14.ok || !p15.ok || !p16.ok || pageErrors.length > 0;
+    const hardFail = !p1Pass || !p2.ok || !p3.ok || !p4.ok || !p5.ok || !p6.ok || !p7.ok || !p8.ok || !p9.ok || !p10.ok || !p11.ok || !p12.ok || !p13Pass || !p14.ok || !p15.ok || !p16.ok || !p17.ok || pageErrors.length > 0;
     if (hardFail) {
       console.error('[smoke-cave] FAIL — phases='
-                    + (p1Pass?1:0) + (p2.ok?1:0) + (p3.ok?1:0) + (p4.ok?1:0) + (p5.ok?1:0) + (p6.ok?1:0) + (p7.ok?1:0) + (p8.ok?1:0) + (p9.ok?1:0) + (p10.ok?1:0) + (p11.ok?1:0) + (p12.ok?1:0) + (p13Pass?1:0) + (p14.ok?1:0) + (p15.ok?1:0) + (p16.ok?1:0)
+                    + (p1Pass?1:0) + (p2.ok?1:0) + (p3.ok?1:0) + (p4.ok?1:0) + (p5.ok?1:0) + (p6.ok?1:0) + (p7.ok?1:0) + (p8.ok?1:0) + (p9.ok?1:0) + (p10.ok?1:0) + (p11.ok?1:0) + (p12.ok?1:0) + (p13Pass?1:0) + (p14.ok?1:0) + (p15.ok?1:0) + (p16.ok?1:0) + (p17.ok?1:0)
                     + ' pageerrors=' + pageErrors.length);
       exitCode = 1;
     } else {
-      console.log('[smoke-cave] OK — cohort 14 phases 1..16 passed (incl. cave-in hazard + named cave bosses)');
-      console.log('[smoke-cave] cohort 15…N will add rooms / sealed doors '
-                  + '— see docs/STAGE_AUTHORING.md §7');
+      console.log('[smoke-cave] OK — cohort 15 phases 1..17 passed (cave-in hazard + named bosses + sealed vault)');
+      console.log('[smoke-cave] cave combat layer complete — awaiting user feedback for tint/pattern depth');
     }
   } catch (e) {
     console.error('[smoke-cave] EXCEPTION:', e && (e.stack || e.message || e));
