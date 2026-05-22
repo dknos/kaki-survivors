@@ -71,6 +71,10 @@ const DEFAULT = {
   optMusicVolume: 0.5,
   optSfxVolume: 0.7,
   optAmbientVolume: 0.6,
+  // Menu BGM mute (the title-screen mute button). Separate from the legacy
+  // procedural-music `optMusic` toggle so enabling menu music doesn't also
+  // turn on in-combat procedural music for existing saves. false = plays.
+  optMenuMusicMuted: false,
   // ── Iter 10a accessibility ──
   // Reduce Motion: skip screen shake, chromatic aberration, VFX bursts.
   // ReduceMotionUserSet sentinel = true once the user explicitly toggled the

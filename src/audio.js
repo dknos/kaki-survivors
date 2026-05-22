@@ -838,6 +838,67 @@ export function stopStageAmbient() {
   _stopStageAmbient();
 }
 
+// ── Menu background music (sampled track) ────────────────────────────────────
+// Title-screen BGM (assets/music/menu_glitch.mp3). Streamed via an
+// HTMLAudioElement -> MediaElementSource -> _musicBus, so the Options "Music"
+// volume slider governs its level. createMediaElementSource is one-shot per
+// element, so the track is created ONCE and thereafter resumed/paused; a
+// dedicated mute flag (meta.optMenuMusicMuted, mirrored in _menuMuted) drives
+// the menu's mute button — separate from the legacy procedural optMusic.
+let _menuMusic = null;     // { el, srcNode, gainNode }
+let _menuMuted = false;
+
+/** Set menu-music mute state; pauses/resumes the live track if present. */
+export function setMenuMusicMuted(muted) {
+  _menuMuted = !!muted;
+  if (!_menuMusic) return;
+  if (_menuMuted) {
+    try { _menuMusic.el.pause(); } catch (_) {}
+  } else {
+    const p = _menuMusic.el.play();
+    if (p && typeof p.catch === 'function') p.catch((err) => console.warn('[audio] menu music resume deferred', err && err.message));
+  }
+}
+
+/** @returns {boolean} current menu-music mute state. */
+export function isMenuMusicMuted() { return _menuMuted; }
+
+/** Start (or resume) the looping menu background track. No-op while muted. */
+export function playMenuMusic() {
+  if (_menuMuted) return;
+  ensureCtx();
+  if (!_ctx || _ctx.state === 'closed') return;
+  if (_menuMusic) {                 // already created — resume (don't re-source)
+    const p = _menuMusic.el.play();
+    if (p && typeof p.catch === 'function') p.catch((err) => console.warn('[audio] menu music autoplay deferred', err && err.message));
+    return;
+  }
+  const url = new URL('../assets/music/menu_glitch.mp3', import.meta.url).href;
+  const el = new Audio(url);
+  el.loop = true;
+  el.preload = 'auto';
+  el.volume = 1.0;
+  let srcNode;
+  try {
+    srcNode = _ctx.createMediaElementSource(el);
+  } catch (err) {
+    console.warn('[audio] menu music source create fail', err && err.message);
+    return;
+  }
+  const gainNode = _ctx.createGain();
+  gainNode.gain.value = 1.0;
+  srcNode.connect(gainNode).connect(_musicBus);   // Music slider governs level
+  _menuMusic = { el, srcNode, gainNode };
+  _playCounts.music++;
+  const p = el.play();
+  if (p && typeof p.catch === 'function') p.catch((err) => console.warn('[audio] menu music autoplay deferred', err && err.message));
+}
+
+/** Pause the menu background track (kept alive for instant resume). */
+export function stopMenuMusic() {
+  if (_menuMusic) { try { _menuMusic.el.pause(); } catch (_) {} }
+}
+
 // ── Visibility helpers ───────────────────────────────────────────────────────
 // main.js owns the visibilitychange listener; these helpers do the audio side.
 
@@ -1171,4 +1232,5 @@ export const _debug = {
   counts: () => ({ ..._playCounts }),
   resetCounts() { _playCounts.sfx = 0; _playCounts.music = 0; _playCounts.ambient = 0; },
   ctx: () => _ctx,
+  menuMusic: () => (_menuMusic ? { src: _menuMusic.el.src, loop: _menuMusic.el.loop, paused: _menuMusic.el.paused } : null),
 };

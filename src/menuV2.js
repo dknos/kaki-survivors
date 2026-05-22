@@ -23,6 +23,7 @@ import { getMeta, selectedStage, setOption, selectedAvatar } from './meta.js';
 import { STAGES, CHARACTERS, AVATARS } from './config.js';
 import { createCharCarousel } from './charCarousel.js';
 import { createHeroSplash } from './menuHeroSplash.js';
+import { playMenuMusic, stopMenuMusic, setMenuMusicMuted, isMenuMusicMuted, unlockAudio } from './audio.js';
 import { state } from './state.js';
 // PHASE 1 P1B — Achievement chain title-screen indicator (Achievements: N/Total).
 import { mountTitlePanel as _mountAchievementsTitlePanel } from './forestAchievements.js';
@@ -109,6 +110,7 @@ let _fontsEl    = null;
 let _activeNav  = 'play';
 let _carousel   = null;
 let _heroSplash = null;
+let _bgmAbort   = null;   // AbortController for the one-shot autoplay-unlock gesture
 let _overlay    = null;
 let _selectedStageId = null;
 
@@ -180,6 +182,20 @@ export function showMenuV2() {
   _fitStage();
   _fitHandler = _fitStage;
   window.addEventListener('resize', _fitHandler);
+
+  // Menu BGM — start the looping track. Autoplay policy may defer the first
+  // play() until a user gesture, so arm a one-shot capture-phase listener that
+  // unlocks audio + (re)starts on the first pointer/key anywhere on the page.
+  setMenuMusicMuted(!!(getMeta() && getMeta().optMenuMusicMuted));
+  playMenuMusic();
+  if (_bgmAbort) { try { _bgmAbort.abort(); } catch (_) {} }
+  _bgmAbort = new AbortController();
+  const _startBgm = () => {
+    try { unlockAudio(); playMenuMusic(); } catch (_) {}
+    if (_bgmAbort) { try { _bgmAbort.abort(); } catch (_) {} _bgmAbort = null; }
+  };
+  document.addEventListener('pointerdown', _startBgm, { capture: true, signal: _bgmAbort.signal });
+  document.addEventListener('keydown', _startBgm, { capture: true, signal: _bgmAbort.signal });
 }
 
 export function hideMenuV2() {
@@ -189,6 +205,8 @@ export function hideMenuV2() {
   }
   if (_carousel) { try { _carousel.destroy(); } catch (_) {} _carousel = null; }
   if (_heroSplash) { try { _heroSplash.destroy(); } catch (_) {} _heroSplash = null; }
+  if (_bgmAbort) { try { _bgmAbort.abort(); } catch (_) {} _bgmAbort = null; }
+  stopMenuMusic();
   if (_overlay && _overlay.parentNode) { _overlay.parentNode.removeChild(_overlay); _overlay = null; }
   if (_menuRoot && _menuRoot.parentNode) _menuRoot.parentNode.removeChild(_menuRoot);
   _menuRoot = null;
@@ -513,6 +531,28 @@ function _buildTopBar(parent) {
   settingsBtn.addEventListener('click', _openSettings);
   const inboxBtn = _iconBtn('✉', 'Inbox', false);
   const friendsBtn = _iconBtn('◴', 'Friends', false);
+  // Menu BGM mute toggle. Persists meta.optMenuMusicMuted; the click is a
+  // user gesture so it also unlocks audio + starts the track on first unmute.
+  // Monochrome music-note glyph to match the other icons (⛭ ✉ ◴); muted state
+  // = struck-through + dimmed (emoji speakers render inconsistently / colored).
+  const muteBtn = _iconBtn('♪', 'Mute music', false);
+  const _muteGlyph = muteBtn.querySelector('span');
+  const _paintMute = (m) => {
+    if (!_muteGlyph) return;
+    _muteGlyph.style.textDecoration = m ? 'line-through' : 'none';
+    _muteGlyph.style.opacity = m ? '0.4' : '1';
+  };
+  _paintMute(isMenuMusicMuted());
+  muteBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    try { unlockAudio(); } catch (_) {}
+    const m = !isMenuMusicMuted();
+    setMenuMusicMuted(m);
+    try { setOption('optMenuMusicMuted', m); } catch (_) {}
+    _paintMute(m);
+    if (!m) playMenuMusic();
+  });
+  icons.appendChild(muteBtn);
   icons.appendChild(settingsBtn);
   icons.appendChild(inboxBtn);
   icons.appendChild(friendsBtn);
