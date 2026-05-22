@@ -174,7 +174,9 @@ export function createHeroSplash(host, opts = {}) {
     group.position.y = 0.03 * bounce;                  // small hop (head stays framed)
     group.position.x = 0.15 * Math.sin(_t * 0.8);      // sway side to side
     group.rotation.z = 0.12 * Math.sin(ph * 0.25);     // alternating lean (two-step)
-    group.rotation.y = 0.5 * Math.sin(_t * 0.8) + _t * 0.16;  // look around + slow drift
+    // Gentle bounded look-around (±~20°). NO continuous drift term — that
+    // accumulated past 180° and turned the model's back to the camera.
+    group.rotation.y = 0.35 * Math.sin(_t * 0.8);
     const sq = 1 + 0.035 * bounce;                     // squash-stretch on the hop
     group.scale.set(1 / Math.sqrt(sq), sq, 1 / Math.sqrt(sq));
 
