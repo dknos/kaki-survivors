@@ -159,8 +159,26 @@ async function main() {
     });
     if (leak.castOnUnpause) failures.push('cast LEAKED through a paused frame (tap during pause fired on unpause)');
 
+    // 6) Pause/Options button (mobile ESC equivalent) opens the options panel.
+    const pause = await page.evaluate(async () => {
+      const ui = await import('./src/ui.js');
+      const btn = document.getElementById('kk-touch-pause');
+      if (!btn) return { found: false };
+      const visBefore = getComputedStyle(btn).display;
+      btn.dispatchEvent(new TouchEvent('touchstart', { bubbles: true, cancelable: true }));
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => requestAnimationFrame(r))));
+      const opened = ui.isOptionsOpen ? ui.isOptionsOpen() : false;
+      try { ui.hideOptions(); } catch (_) {}
+      return { found: true, visBefore, opened };
+    });
+    if (!pause.found) failures.push('pause/options touch button not created');
+    else {
+      if (pause.visBefore !== 'flex') failures.push(`pause button not visible during gameplay (display=${pause.visBefore})`);
+      if (!pause.opened) failures.push('pause button did not open the options panel');
+    }
+
     if (pageErrors.length) failures.push('touch ctx page errors: ' + pageErrors.join(' | '));
-    console.log(`  exist: dash=${pre.dash} active=${pre.active} jumpGone=${pre.jumpGone} | vis: dash=${vis.dashDisp} active ${vis.activeBefore}->${vis.activeAfter} | dash.dashed=${dash.dashed} | active.cast=${cast.cast} | leakBlocked=${!leak.castOnUnpause}`);
+    console.log(`  exist: dash=${pre.dash} active=${pre.active} jumpGone=${pre.jumpGone} | vis: dash=${vis.dashDisp} active ${vis.activeBefore}->${vis.activeAfter} | dash.dashed=${dash.dashed} | active.cast=${cast.cast} | leakBlocked=${!leak.castOnUnpause} | pauseOpens=${pause.opened}`);
   } catch (e) {
     failures.push('touch ctx exception: ' + (e && e.message ? e.message : String(e)));
   } finally {

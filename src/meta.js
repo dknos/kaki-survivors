@@ -58,7 +58,8 @@ const DEFAULT = {
   totalKills: 0,
   // ── Options ──
   optVolume: 0.7,             // legacy single-slider value; kept for back-compat
-  optShake: 1.0,
+  optShake: 0.25,             // default screen-shake ~75% lower than the old 1.0 baseline; slider (0-1.5) still re-adjustable
+
   optMusic: false,    // user prefers silence by default; opt-in via options menu
   // ── Iter 10a audio mix split — Master/Music/SFX (defaults: combat readability) ──
   // P4G #141 (2026-05-18): added optAmbientVolume — fourth bus governs sampled

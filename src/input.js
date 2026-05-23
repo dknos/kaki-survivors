@@ -77,6 +77,14 @@ function _updateTouchButtons() {
     a.style.opacity = ready ? '1' : '0.4';
     a.style.filter  = ready ? 'none' : 'grayscale(1)';
   }
+  const p = _touchBtns.pause;
+  if (p) {
+    // Pause/Options gear: visible during live gameplay (hidden once a modal is
+    // up — Options has its own close). No cooldown dim.
+    p.style.display = live ? 'flex' : 'none';
+    p.style.opacity = '0.9';
+    p.style.filter  = 'none';
+  }
 }
 
 /** Resolve the auto-fire-primary accessibility toggle. Unset resolves by device:
@@ -423,6 +431,10 @@ export function initInput() {
       'right: 24px; bottom: 28px; width: 84px; height: 84px; font-size: 40px;');
     const activeBtn = mkBtn('kk-touch-active', '✸', 'Active ability',
       'right: 36px; bottom: 130px; width: 68px; height: 68px; font-size: 30px;');
+    // Pause / Options — mobile has no ESC key. Top-right, below the kills
+    // counter (clear of the bottom dash/active cluster + the left move stick).
+    const pauseBtn = mkBtn('kk-touch-pause', '⏸', 'Options',
+      'right: 12px; top: 54px; width: 50px; height: 50px; font-size: 22px;');
     const press = (btn, fn) => {
       const onStart = (e) => { e.preventDefault(); e.stopPropagation(); fn(true);  btn.style.transform = 'scale(0.9)'; };
       const onEnd   = (e) => { if (e) { e.preventDefault(); e.stopPropagation(); } fn(false); btn.style.transform = ''; };
@@ -432,7 +444,10 @@ export function initInput() {
     };
     press(dashBtn,   (down) => { _touchDashHeld = down; });
     press(activeBtn, (down) => { if (down) _activeCastQueued = true; });
-    _touchBtns = { dash: dashBtn, active: activeBtn };
+    // Reuse the ESC handler (main.js) — opens Options in a run, closes whatever
+    // is open. Options has its own close button, so the gear only needs to open.
+    press(pauseBtn,  (down) => { if (down) window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Escape', key: 'Escape', bubbles: true })); });
+    _touchBtns = { dash: dashBtn, active: activeBtn, pause: pauseBtn };
     // Own rAF so visibility/cooldown dimming updates even while the game logic
     // is paused (modal open) — that's exactly when buttons must hide.
     const tick = () => { try { _updateTouchButtons(); } catch (_) {} requestAnimationFrame(tick); };
