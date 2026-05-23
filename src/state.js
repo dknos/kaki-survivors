@@ -44,8 +44,8 @@ export const state = {
     statMul: { dmg: 1, projSpeed: 1, area: 1, cooldown: 1, magnet: 1, hpMax: 1, moveSpeed: 1, duration: 1, dmgTaken: 1 },
     regenPerSec: 0,
     // Dash (charge / pushback)
-    dashUnlocked: false,
-    dashLevel: 0,           // 0 = locked. Each filler pick increments.
+    dashUnlocked: true,     // DMD-hybrid pivot: dash is STANDARD from L1 (was unlock-gated)
+    dashLevel: 1,           // 1 = base dash. Each 'Charge Dash' filler pick upgrades toward 5.
     dashCD: 0,              // seconds until next dash usable
     dashUntil: 0,           // real-time when current dash ends (0 if not dashing)
     dashDir: { x: 0, z: 1 },
@@ -255,8 +255,8 @@ export function resetState() {
   state.enemyProjectiles.active.length = 0;
   state.gems.list.length = 0; state.gems.nextSlot = 0;
   state.webs.list.length = 0;
-  state.hero.dashUnlocked = false;
-  state.hero.dashLevel = 0;
+  state.hero.dashUnlocked = true;   // standard from L1 (DMD-hybrid pivot)
+  state.hero.dashLevel = 1;
   state.hero.dashCD = 0;
   state.hero.dashUntil = 0;
   state.hero.dashDir.x = 0; state.hero.dashDir.z = 1;

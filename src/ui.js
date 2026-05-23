@@ -5934,7 +5934,7 @@ export function showTutorial() {
     <div style="font-size:calc(var(--kk-font-scale, 1) * 18px);color:${C.cyan};text-shadow:0 0 8px ${C.cyan};letter-spacing:4px;text-align:center;margin-bottom:10px;">CONTROLS</div>
     <div><span style="color:${C.amber}">WASD / Arrows</span> &mdash; Move</div>
     <div><span style="color:${C.amber}">Space</span> &mdash; Jump</div>
-    <div><span style="color:${C.amber}">Shift</span> &mdash; Dash <span style="opacity:0.6">(unlocks via filler)</span></div>
+    <div><span style="color:${C.amber}">Shift</span> &mdash; Dash <span style="opacity:0.6">(upgrade via filler)</span></div>
     <div><span style="color:${C.amber}">Mouse wheel</span> &mdash; Zoom <span style="opacity:0.6">(unlocks via filler)</span></div>
     <div><span style="color:${C.amber}">ESC</span> &mdash; Options</div>
     <div style="text-align:center;margin-top:8px;opacity:0.7;font-size:calc(var(--kk-font-scale, 1) * 11px);">[click or any key to dismiss]</div>

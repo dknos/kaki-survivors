@@ -297,7 +297,7 @@ const FILLERS = [
   { kind: 'filler', id: 'cooldown', name: 'Focus',         desc: '-8% Cooldown',  icon: '⏱️' },
   { kind: 'filler', id: 'damage',   name: 'Sharpened',     desc: '+10% Damage',   icon: '⚔️' },
   { kind: 'filler', id: 'zoomout',  name: 'Bigger Picture',desc: 'Unlock one more zoom-out step', icon: '🔍' },
-  { kind: 'filler', id: 'dash',     name: 'Charge Dash',   desc: 'SHIFT to dash + knock back enemies (each pick = stronger)', icon: '💨' },
+  { kind: 'filler', id: 'dash',     name: 'Charge Dash',   desc: 'Stronger dash: more knockback, damage & i-frames (each pick = stronger)', icon: '💨' },
 ];
 
 export function weaponChoices(n) {
