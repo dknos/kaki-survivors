@@ -8,6 +8,7 @@ import { state, xpForLevel } from './state.js';
 import { XP, HERO } from './config.js';
 import { sfx } from './audio.js';
 import { weaponChoices, acquireWeapon, applyFiller, applyEvolution } from './weapons/index.js';
+import { acquireActive } from './weapons/actives.js';
 import { shopLevel } from './meta.js';
 import { showLevelUpModal, hideLevelUpModal, flashLevelUp } from './ui.js';
 import { spawnMagnetSpark } from './fx.js';
@@ -410,6 +411,8 @@ export function applyLevelUpChoice(choice) {
   } else if (choice && choice.kind === 'passive') {
     import('./weapons/passives.js').then(({ applyPassive }) => applyPassive(choice));
     try { import('./codex.js').then(({ notifyPassivePicked }) => notifyPassivePicked(choice.id)); } catch (_) {}
+  } else if (choice && choice.kind === 'active') {
+    acquireActive(choice.id);
   }
 
   // Iter 32i — batch cascade. We already drained XP into pendingLevelCount

@@ -49,6 +49,8 @@ export const state = {
     dashCD: 0,              // seconds until next dash usable
     dashUntil: 0,           // real-time when current dash ends (0 if not dashing)
     dashDir: { x: 0, z: 1 },
+    // DMD-hybrid active ability slot (drafted; triggered by RMB/Q or touch button)
+    active: { id: null, level: 0, cd: 0 },
     // Vertical motion (jump)
     velY: 0,
     grounded: true,
@@ -260,6 +262,8 @@ export function resetState() {
   state.hero.dashCD = 0;
   state.hero.dashUntil = 0;
   state.hero.dashDir.x = 0; state.hero.dashDir.z = 1;
+  if (state.hero.active) { state.hero.active.id = null; state.hero.active.level = 0; state.hero.active.cd = 0; }
+  else state.hero.active = { id: null, level: 0, cd: 0 };
   for (const k of Object.keys(state.hero.fillerCounts)) state.hero.fillerCounts[k] = 0;
   state.hero.rerolls = 1;
   state.hero.skips = 1;

@@ -8,12 +8,14 @@
 import * as THREE from 'three';
 import { state } from '../state.js';
 import { damageEnemy, queryRadius } from '../enemies.js';
-import { unlockZoomLevel, getMaxZoomNotch, getZoomNotchCount } from '../input.js';
+import { unlockZoomLevel, getMaxZoomNotch, getZoomNotchCount, consumeActiveCast } from '../input.js';
 
 import orbitals from './orbitals.js';
 import autoAim, { spawnGlasswindShards, syncProjectileVisuals, flushProjectileVisuals, releaseProjectileVisuals } from './autoAim.js';
 // DMD-hybrid pivot — the always-equipped, player-aimed, hold-to-fire primary.
 import primary from './primary.js';
+// DMD-hybrid pivot — the drafted active-ability slot (RMB/Q cast).
+import { tickActive, castActive, activeChoices } from './actives.js';
 import chain from './chain.js';
 import web, { tickWebs } from './web.js';
 import frostbloom from './frostbloom.js';
@@ -229,6 +231,10 @@ export function tickWeapons(dt) {
     const level = mod.levels[entry.level - 1];
     if (mod.tick) mod.tick(state, dt, level, entry.inst);
   }
+  // 1b) Active ability — count down its cooldown, fire on a queued RMB/Q press.
+  //     Single chokepoint: tickWeapons runs in every combat mode.
+  tickActive(dt);
+  if (consumeActiveCast()) castActive();
   // 2) Update all live projectiles (spawned by weapons above)
   tickProjectiles(dt);
   // 3) Chain-lightning arc fade is owned by src/chainFx.js (A4 refactor) —
@@ -360,6 +366,12 @@ export function weaponChoices(n) {
   try {
     const passives = passiveChoices(2);
     for (const p of passives) pool.push(p);
+  } catch (_) {}
+
+  // DMD-hybrid: offer the active-ability card(s) not yet maxed. Pushed once so
+  // it's one card among the roll (equip on first pick, level up on re-pick).
+  try {
+    for (const c of activeChoices()) pool.push(c);
   } catch (_) {}
 
   // Shuffle the full pool (weapons + passives + evolutions).

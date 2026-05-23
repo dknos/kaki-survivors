@@ -112,6 +112,15 @@ export function consumeJump() {
 }
 export function _internalQueueJump() { _jumpQueued = true; }
 
+// Edge-triggered active-ability cast (RMB / Q on PC; touch button in Iter D).
+// Consumed once per press by the weapon tick (weapons/index.js tickWeapons).
+let _activeCastQueued = false;
+export function consumeActiveCast() {
+  if (_activeCastQueued) { _activeCastQueued = false; return true; }
+  return false;
+}
+export function _internalQueueActiveCast() { _activeCastQueued = true; }
+
 // Edge-triggered gamepad action queues. Other systems consume these once.
 let _padInteractQueued = false;
 let _padPauseQueued = false;
@@ -209,6 +218,8 @@ export function initInput() {
     _kbmActivityThisFrame = true;
     // Edge-trigger jump on Space — main.js gates by state.started before consuming
     if (e.code === 'Space' && !e.repeat) _jumpQueued = true;
+    // Edge-trigger active-ability cast on Q.
+    if (e.code === 'KeyQ' && !e.repeat) _activeCastQueued = true;
   });
   window.addEventListener('keyup', (e) => {
     _keys[e.code] = false;
@@ -230,12 +241,19 @@ export function initInput() {
   // anywhere clears the hold so it can't get stuck after a drag-off.
   window.addEventListener('mousedown', (e) => {
     _kbmActivityThisFrame = true;
-    if (e.button !== 0) return;
     const onUi = e.target && e.target.closest && e.target.closest('button, [role="dialog"], [role="button"], input, a');
-    if (!onUi) _primaryHeld = true;
+    if (onUi) return;
+    if (e.button === 0) _primaryHeld = true;            // LMB hold = fire primary
+    else if (e.button === 2) _activeCastQueued = true;  // RMB = active ability
   }, { passive: true });
   window.addEventListener('mouseup', (e) => { if (e.button === 0) _primaryHeld = false; }, { passive: true });
   window.addEventListener('blur', () => { _primaryHeld = false; });
+  // RMB is the active-ability trigger — suppress the browser context menu over
+  // the play area so it doesn't pop. (Menus/dialogs keep their default menu.)
+  window.addEventListener('contextmenu', (e) => {
+    const onUi = e.target && e.target.closest && e.target.closest('button, [role="dialog"], [role="button"], input, a');
+    if (!onUi) e.preventDefault();
+  });
 
   // ── Touch joystick (left half of screen) ──
   const onTouchStart = (e) => {

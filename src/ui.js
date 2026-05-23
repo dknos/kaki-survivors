@@ -37,6 +37,7 @@ import { mountLegend as mountPromptLegend, formatPrompt } from './buttonPrompts.
 import { loadArenaDecor } from './arenaDecor.js';
 import { bindTooltip, unbindTooltip, hideTooltip } from './tooltips.js';
 import { weaponBlurb, passiveBlurb, fillerBlurb, characterBlurb, weaponStatRows, passiveStatRows } from './weapons/descriptions.js';
+import { ACTIVES } from './weapons/actives.js';
 import { showCodex, isCodexOpen } from './codex.js';
 import { showRunHistory, recordRunResult } from './runHistory.js';
 import { downloadShareCard, renderShareCard } from './shareCard.js';
@@ -899,6 +900,12 @@ export function initUI() {
     font-family: ${F.body}; font-size: 14px; letter-spacing: 2px;
     color: ${C.cyan}; text-shadow: 0 0 8px ${C.cyan}; display: none;`;
 
+  // Active-ability readout (sits just above the dash readout)
+  _activeReadout = document.createElement('div');
+  _activeReadout.style.cssText = `position: absolute; bottom: 38px; left: 16px;
+    font-family: ${F.body}; font-size: 14px; letter-spacing: 2px;
+    color: ${C.amber}; text-shadow: 0 0 8px ${C.amber}; display: none;`;
+
   // Weapon roster — bottom-right HUD chip showing icons + level pips
   _weaponPanel = document.createElement('div');
   _weaponPanel.style.cssText = `
@@ -912,6 +919,7 @@ export function initUI() {
   _hud.appendChild(hpWrap);
   _hud.appendChild(stats);
   _hud.appendChild(_dashReadout);
+  _hud.appendChild(_activeReadout);
   _hud.appendChild(_weaponPanel);
   _root.appendChild(_hud);
 
@@ -920,6 +928,7 @@ export function initUI() {
 }
 
 let _dashReadout = null;
+let _activeReadout = null;
 let _weaponPanel = null;
 let _nextBossText = null;
 let _dpsText = null;
@@ -1002,6 +1011,23 @@ export function updateUI() {
       _dashReadout.style.opacity = ready ? '1' : '0.6';
     } else {
       _dashReadout.style.display = 'none';
+    }
+  }
+
+  // Active-ability readout (DMD-hybrid)
+  if (_activeReadout) {
+    const a = h.active;
+    if (a && a.id) {
+      _activeReadout.style.display = 'block';
+      const def = ACTIVES[a.id];
+      const nm = (def && def.name) || 'Active';
+      const ready = a.cd <= 0;
+      _activeReadout.textContent = ready
+        ? `${nm} READY [RMB/Q]  Lv${a.level}`
+        : `${nm} ${a.cd.toFixed(1)}s  Lv${a.level}`;
+      _activeReadout.style.opacity = ready ? '1' : '0.6';
+    } else {
+      _activeReadout.style.display = 'none';
     }
   }
 }
@@ -1462,10 +1488,15 @@ function paintCards(row, choices, registry) {
       // Passives get a cyan accent so they read as a distinct slot type.
       card.style.borderColor = C.cyan;
       card.style.boxShadow = `0 1px 0 rgba(255,255,255,0.04) inset, 0 12px 26px rgba(0,0,0,0.55), 0 0 18px rgba(127,255,228,0.18)`;
+    } else if (choice.kind === 'active') {
+      // Active abilities read as a distinct slot (amber, like a key cast).
+      card.style.borderColor = C.amber;
+      card.style.boxShadow = `0 1px 0 rgba(255,255,255,0.04) inset, 0 12px 26px rgba(0,0,0,0.55), 0 0 18px rgba(255,210,127,0.20)`;
     }
     const levelLine =
       choice.kind === 'evolution' ? `<div class="kk-card-level" style="color:${C.amber}">★ EVOLUTION ★</div>` :
       choice.kind === 'passive'   ? `<div class="kk-card-level" style="color:${C.cyan}">PASSIVE · LV ${lvl}</div>` :
+      choice.kind === 'active'    ? `<div class="kk-card-level" style="color:${C.amber}">⚡ ACTIVE · LV ${lvl}</div>` :
                                     `<div class="kk-card-level">Lv ${lvl}</div>`;
     card.innerHTML = `
       <div class="kk-card-num">[${i + 1}]</div>
@@ -5936,6 +5967,7 @@ export function showTutorial() {
     <div><span style="color:${C.amber}">Mouse</span> &mdash; Aim &nbsp;<span style="color:${C.amber}">Hold L-Click</span> &mdash; Fire primary</div>
     <div><span style="color:${C.amber}">Space</span> &mdash; Jump</div>
     <div><span style="color:${C.amber}">Shift</span> &mdash; Dash <span style="opacity:0.6">(upgrade via filler)</span></div>
+    <div><span style="color:${C.amber}">R-Click / Q</span> &mdash; Active ability <span style="opacity:0.6">(when drafted)</span></div>
     <div><span style="color:${C.amber}">Mouse wheel</span> &mdash; Zoom <span style="opacity:0.6">(unlocks via filler)</span></div>
     <div><span style="color:${C.amber}">ESC</span> &mdash; Options</div>
     <div style="text-align:center;margin-top:8px;opacity:0.7;font-size:calc(var(--kk-font-scale, 1) * 11px);">[click or any key to dismiss]</div>
