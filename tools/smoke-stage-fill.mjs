@@ -97,7 +97,14 @@ async function main() {
     const gatePort = await page.evaluate(() => { const g = document.getElementById('kk-rotate-gate'); return g ? getComputedStyle(g).display : 'absent'; });
     if (gatePort !== 'flex') failures.push(`rotate gate not shown in portrait (display=${gatePort})`);
     if (Math.abs(sp.h - sp.vh) > 2) failures.push(`portrait stage NOT full height: ${sp.h} vs ${sp.vh}`);
-    console.log(`  coarse landscape 780x360: stage ${s.w}x${s.h} gate=${gateLand} | portrait 360x780: stage ${sp.w}x${sp.h} gate=${gatePort}`);
+    // The actual S24 report: landscape AR > 21:9 (browser chrome eats height,
+    // ~2.34). The OLD code pillarboxed this into side bars. Must fill.
+    await page.setViewportSize({ width: 940, height: 400 });   // AR 2.35 > 2.333
+    await page.waitForTimeout(150);
+    const sw = await readStage(page);
+    if (Math.abs(sw.w - sw.vw) > 2) failures.push(`wide landscape (AR 2.35) stage NOT full width: ${sw.w} vs ${sw.vw} (side bars — the S24 report)`);
+    if (Math.abs(sw.h - sw.vh) > 2) failures.push(`wide landscape (AR 2.35) stage NOT full height: ${sw.h} vs ${sw.vh}`);
+    console.log(`  coarse landscape 780x360: stage ${s.w}x${s.h} gate=${gateLand} | portrait 360x780: stage ${sp.w}x${sp.h} gate=${gatePort} | wide 940x400: stage ${sw.w}x${sw.h}`);
   } catch (e) {
     failures.push('phone ctx exception: ' + (e && e.message ? e.message : String(e)));
   } finally {

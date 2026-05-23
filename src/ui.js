@@ -685,6 +685,14 @@ function injectCSS() {
       -webkit-overflow-scrolling: touch;
       padding: clamp(16px, 4vh, 40px) 16px;
     }
+    /* Short landscape (phone held sideways, ~360-440px tall): the 44px title +
+       margin + 296px cards overflow a 400px viewport. Shrink the header + card
+       min-height so the level-up/draft fits without scrolling or feeling
+       cramped. Keyed on height so it never touches desktop or portrait. */
+    @media (max-height: 480px) {
+      .kk-modal-title { font-size: calc(var(--kk-font-scale, 1) * 26px); margin-bottom: 12px; }
+      .kk-card        { min-height: 232px; }
+    }
     /* Catch-all — never let any modal overflow horizontally. */
     body { overflow-x: hidden; }
   `;
@@ -1416,7 +1424,13 @@ export function showLevelUpModal(choices) {
   rebuildEcon();
   // End FOREST-V2-A12 gold economy block.
 
-  _root.appendChild(_modal);
+  // Mount on <body>, not #ui-root: #ui-root lives inside #kk-stage (a
+  // transformed stacking context at the body-level default z), while the
+  // forest HUD is body-mounted at z:70 — so a modal trapped in #ui-root gets
+  // painted OVER by the HUD (kills/clock occluding the title). On <body> the
+  // modal's z:100 wins and its backdrop covers the HUD. Teardown is
+  // parent-agnostic (parentNode.removeChild), so this is reparent-safe.
+  document.body.appendChild(_modal);
 
   // FOREST-V2-A12 (#116) — strip banished ids from the initial display. The
   // upstream callers (xp.js _triggerLevelUp, xp.js applyLevelUpChoice

@@ -195,13 +195,14 @@ const MAX_ASPECT = _coarsePointer ? 21 / 9 : 16 / 9;
 function computeStage() {
   const vw = window.innerWidth, vh = window.innerHeight;
   let w, h;
-  if (vw / vh > MAX_ASPECT) { h = vh; w = Math.round(vh * MAX_ASPECT); }
-  // Touch/phones: MAX_ASPECT is a CAP, not a forced exact aspect — fill the
-  // screen so a 19.5:9 phone (e.g. S24 landscape = 2.167 < 2.333) doesn't get
-  // letterbox bars top/bottom (and the body-mounted HUD stays aligned to the
-  // real playfield corners). Desktop keeps its fixed 16:9 FoV unchanged.
-  else if (_coarsePointer) { w = vw; h = vh; }
-  else { w = vw; h = Math.round(vw / MAX_ASPECT); }
+  // Touch/phones: ALWAYS fill the viewport, with NO aspect cap — so neither
+  // orientation gets bars. (The browser chrome can make a landscape phone's
+  // usable AR exceed 21:9, e.g. ~2340x1000 = 2.34, which a cap would pillarbox
+  // into side bars — exactly the report. Phones are never absurdly wide, so a
+  // cap buys nothing here.) Checked FIRST so the too-wide branch can't fire.
+  if (_coarsePointer) { w = vw; h = vh; }
+  else if (vw / vh > MAX_ASPECT) { h = vh; w = Math.round(vh * MAX_ASPECT); }  // desktop ultrawide → pillarbox
+  else { w = vw; h = Math.round(vw / MAX_ASPECT); }                            // desktop → fixed 16:9
   stage.style.width = w + 'px';
   stage.style.height = h + 'px';
   return { w, h };
@@ -578,9 +579,11 @@ async function boot() {
     if (typeof document !== 'undefined' && document.documentElement) {
       let fs = Number(meta.optFontScale);
       if (!Number.isFinite(fs)) fs = 1;
-      // Coarse pointers (phones) read small — bump the base when the user hasn't
-      // set a custom scale. An explicit choice (!= 1.0) is respected as-is.
-      if (_coarsePointer && fs === 1) fs = 1.2;
+      // NOTE: do NOT auto-bump on coarse — the modals/level-up cards consume this
+      // var and a 1.2 bump made them oversized + cramped on a short landscape
+      // phone (cards 327px tall in a 402 viewport). The main-menu legibility fix
+      // is independent (menuV2.css @media coarse). Players can still raise it via
+      // the Font Scale option.
       document.documentElement.style.setProperty('--kk-font-scale',
         String(Math.max(0.6, Math.min(1.6, fs))));
     }
