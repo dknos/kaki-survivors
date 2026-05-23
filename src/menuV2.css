@@ -688,20 +688,28 @@
       linear-gradient(rgba(6,4,3,.62), rgba(6,4,3,.82)),
       url("../assets/sprites/menu-bg.png") center center / cover no-repeat;
   }
-  .kkv2-word-sub       { font-size: 16px; }
-  .kkv2-acct-name      { font-size: 16px; }
-  .kkv2-acct-tag       { font-size: 13px; }
-  .kkv2-navitem        { font-size: 23px; }
-  .kkv2-nav-glyph      { font-size: 23px; }
-  .kkv2-nav-kbd        { font-size: 13px; }
-  .kkv2-cont-eyebrow   { font-size: 15px; }
-  .kkv2-cont-sub       { font-size: 18px; }
-  .kkv2-cont-label     { font-size: 13px; }
-  .kkv2-cont-of        { font-size: 18px; }
-  .kkv2-cont-btn       { font-size: 21px; }
-  .kkv2-cont-btn-glyph { font-size: 18px; }
-  .kkv2-cont-btn-kbd   { font-size: 13px; }
-  .kkv2-rail-eye       { font-size: 20px; }
-  .kkv2-rail-count     { font-size: 15px; }
-  .kkv2-tab            { font-size: 16px; }
+  /* Scale-up pass (user: "much bigger font"). ~+55% over the desktop px since
+     the whole 1920x1080 menu is scaled to ~0.37 on a phone. Touch targets
+     (icon buttons, nav, PLAY) enlarged too. */
+  .kkv2-word-main      { font-size: 38px; }
+  .kkv2-word-sub       { font-size: 20px; }
+  .kkv2-acct-name      { font-size: 20px; }
+  .kkv2-acct-tag       { font-size: 15px; }
+  .kkv2-acct-avatar    { width: 52px; height: 52px; }
+  .kkv2-iconbtn        { width: 58px; height: 58px; font-size: 25px; }
+  .kkv2-navitem        { font-size: 28px; }
+  .kkv2-nav-glyph      { font-size: 28px; }
+  .kkv2-nav-kbd        { font-size: 15px; }
+  .kkv2-cont-eyebrow   { font-size: 17px; }
+  .kkv2-cont-sub       { font-size: 22px; }
+  .kkv2-cont-name      { font-size: 40px; }
+  .kkv2-cont-val       { font-size: 37px; }
+  .kkv2-cont-label     { font-size: 14px; }
+  .kkv2-cont-of        { font-size: 22px; }
+  .kkv2-cont-btn       { font-size: 26px; padding: 18px 26px; }
+  .kkv2-cont-btn-glyph { font-size: 22px; }
+  .kkv2-cont-btn-kbd   { font-size: 15px; }
+  .kkv2-rail-eye       { font-size: 24px; }
+  .kkv2-rail-count     { font-size: 17px; }
+  .kkv2-tab            { font-size: 18px; }
 }
