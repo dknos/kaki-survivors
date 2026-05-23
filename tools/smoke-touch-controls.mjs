@@ -141,8 +141,26 @@ async function main() {
     });
     if (!cast.cast) failures.push('active button press did not cast (cooldown not armed via tickWeapons)');
 
+    // 5) Cast-leak-through guard (blind spot #1): a tap while PAUSED (modal up)
+    //    must not fire on unpause. The rAF updater clears the queue while !live.
+    const leak = await page.evaluate(async () => {
+      const act = await import('./src/weapons/actives.js');
+      const s = window.kkState;
+      act.acquireActive('nova');
+      s.hero.active.cd = 0;                       // ready to fire
+      s.time.paused = true;                       // simulate a modal/pause
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+      const a = document.getElementById('kk-touch-active');
+      a.dispatchEvent(new TouchEvent('touchstart', { bubbles: true, cancelable: true })); // tap during pause
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => requestAnimationFrame(r)))); // rAF clears the queue
+      s.time.paused = false;                      // unpause
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => requestAnimationFrame(r)))); // tickWeapons runs
+      return { castOnUnpause: s.hero.active.cd > 0 };
+    });
+    if (leak.castOnUnpause) failures.push('cast LEAKED through a paused frame (tap during pause fired on unpause)');
+
     if (pageErrors.length) failures.push('touch ctx page errors: ' + pageErrors.join(' | '));
-    console.log(`  exist: dash=${pre.dash} active=${pre.active} jumpGone=${pre.jumpGone} | vis: dash=${vis.dashDisp} active ${vis.activeBefore}->${vis.activeAfter} | dash.dashed=${dash.dashed} | active.cast=${cast.cast}`);
+    console.log(`  exist: dash=${pre.dash} active=${pre.active} jumpGone=${pre.jumpGone} | vis: dash=${vis.dashDisp} active ${vis.activeBefore}->${vis.activeAfter} | dash.dashed=${dash.dashed} | active.cast=${cast.cast} | leakBlocked=${!leak.castOnUnpause}`);
   } catch (e) {
     failures.push('touch ctx exception: ' + (e && e.message ? e.message : String(e)));
   } finally {
