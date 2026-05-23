@@ -5373,10 +5373,23 @@ export function showOptions() {
     setOption('optManualAim', nv);
     return nv;
   });
+  // Auto-Fire Primary (DMD-hybrid). optAutoFirePrimary is null by default and
+  // resolves by device (ON for touch, OFF for mouse); the toggle shows the
+  // resolved state and writes an explicit bool once the player flips it.
+  const _coarsePtr = !!(window.matchMedia && window.matchMedia('(pointer: coarse)').matches) || ('ontouchstart' in window);
+  const autoFireInit = (meta.optAutoFirePrimary == null) ? _coarsePtr : !!meta.optAutoFirePrimary;
+  const autoFireTgl = mkToggle(autoFireInit, C.amber, 'On', 'Off', () => {
+    const cur = getMeta().optAutoFirePrimary;
+    const resolved = (cur == null) ? _coarsePtr : !!cur;
+    const nv = !resolved;
+    setOption('optAutoFirePrimary', nv);
+    return nv;
+  });
   const deadzoneSlider = mkSlider(0, 0.30, 0.01, meta.optControllerDeadzone != null ? meta.optControllerDeadzone : 0.15, v => {
     setOption('optControllerDeadzone', v);
   });
   sCtrl.appendChild(row('Manual Aim',         aimTgl, 'Mouse target for autoaim/volley'));
+  sCtrl.appendChild(row('Auto-Fire Primary',  autoFireTgl, 'On: primary fires itself (mobile). Off: hold L-Click / fire'));
   sCtrl.appendChild(row('Controller Deadzone', deadzoneSlider, '0.00 (twitchy) to 0.30 (lazy)'));
 
   // Language (i18n stub) — folded into Display so it isn't a lonely 1-row tab.

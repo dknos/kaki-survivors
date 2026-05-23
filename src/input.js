@@ -37,6 +37,48 @@ export function getMouseClient() { return _mouse; }
 let _primaryHeld = false;
 let _lastAimMoveAt = 0;
 
+// ── Touch action buttons (DMD-hybrid mobile) ──
+// _touchDashHeld: dash button currently pressed (folded into isDashPressed).
+// _touchBtns: { dash, active } DOM refs, updated each frame for cooldown
+// dimming + hide-while-paused. _lastStickTapAt: double-tap-to-jump timing.
+let _touchDashHeld = false;
+let _touchBtns = null;
+let _lastStickTapAt = 0;
+
+/** Is the game in live combat (not paused, no modal up)? Touch buttons hide
+ *  otherwise so a tap can't leak a queued cast through a paused frame. */
+function _gameInteractive() {
+  if (!state.started) return false;
+  if (state.time && state.time.paused) return false;
+  if (state.pendingLevelUp) return false;
+  try { if (document.querySelector('[role="dialog"]')) return false; } catch (_) {}
+  return true;
+}
+
+/** Per-frame: show/hide + cooldown-dim the touch buttons. Driven by its own
+ *  rAF (runs even while game logic is paused, so buttons hide promptly). */
+function _updateTouchButtons() {
+  if (!_touchBtns) return;
+  const live = _gameInteractive();
+  if (!live) { _touchDashHeld = false; _activeCastQueued = false; }  // drop leaked input
+  const d = _touchBtns.dash;
+  if (d) {
+    d.style.display = live ? 'flex' : 'none';
+    const ready = (state.hero.dashCD || 0) <= 0;
+    d.style.opacity = ready ? '1' : '0.4';
+    d.style.filter  = ready ? 'none' : 'grayscale(1)';
+  }
+  const a = _touchBtns.active;
+  if (a) {
+    const act = state.hero.active;
+    const has = !!(act && act.id);
+    a.style.display = (live && has) ? 'flex' : 'none';
+    const ready = act && (act.cd || 0) <= 0;
+    a.style.opacity = ready ? '1' : '0.4';
+    a.style.filter  = ready ? 'none' : 'grayscale(1)';
+  }
+}
+
 /** Resolve the auto-fire-primary accessibility toggle. Unset resolves by device:
  *  ON for coarse pointer (touch), OFF for mouse — so the primary fires on its own
  *  on phones (auto-aim) but is hold-to-fire on PC. */
@@ -101,6 +143,7 @@ export function isDashPressed() {
   // Gamepad: A button (XInput south) also triggers dash.
   if (_keys['ShiftLeft'] || _keys['ShiftRight']) return true;
   if (gamepadState.connected && gamepadState.buttons.a) return true;
+  if (_touchDashHeld) return true;   // touch dash button (DMD-hybrid mobile)
   return false;
 }
 
@@ -260,6 +303,10 @@ export function initInput() {
     if (_touch.active) return;
     for (const t of e.changedTouches) {
       if (t.clientX < window.innerWidth * 0.5) {
+        // Double-tap the move stick = jump (no dedicated button on touch).
+        const now = performance.now();
+        if (now - _lastStickTapAt < 280) _jumpQueued = true;
+        _lastStickTapAt = now;
         _touch.active = true;
         _touch.id = t.identifier;
         _touch.originX = t.clientX;
@@ -319,6 +366,9 @@ export function initInput() {
 
   // ── Pinch zoom (two-finger touch) — maps ratio to notch index ──
   window.addEventListener('touchstart', (e) => {
+    // Ignore touches that began on an action button — a thumb on dash/active
+    // plus a thumb on the stick is NOT a pinch (blind-spot: zoom would jitter).
+    if (e.target && e.target.closest && e.target.closest('[data-kk-touch-btn]')) return;
     if (e.touches.length === 2) {
       const a = e.touches[0], b = e.touches[1];
       _pinchStartDist = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
@@ -346,33 +396,47 @@ export function initInput() {
     if (e.touches.length < 2) _pinchStartDist = 0;
   });
 
-  // ── Touch jump button (coarse pointer only) ──
-  // Mobile has no keyboard Space, so the hero hop was unreachable. One fixed
-  // round button bottom-right (right half — clear of the left-half joystick).
+  // ── Touch action buttons (coarse pointer only): DASH + ACTIVE ──
+  // The DMD-hybrid mobile scheme. Movement = left-half stick (above); the
+  // primary auto-fires at the nearest enemy (optAutoFirePrimary defaults ON
+  // for touch). Jump is reachable by double-tapping the move stick (see
+  // onTouchStart), so the bottom-right corner is freed for the two combat
+  // verbs the player taps. Buttons mount on <body> (outside #kk-stage) so the
+  // letterbox doesn't clip them; they self-hide while paused / a modal is up.
   if (isCoarsePointer()) {
-    const jumpBtn = document.createElement('div');
-    jumpBtn.id = 'kk-touch-jump';
-    jumpBtn.textContent = '⤴';
-    jumpBtn.setAttribute('aria-label', 'Jump');
-    jumpBtn.style.cssText = `
-      position: fixed; right: 24px; bottom: 24px; z-index: 90;
-      width: 76px; height: 76px; border-radius: 50%;
-      display: flex; align-items: center; justify-content: center;
-      background: radial-gradient(circle at 50% 35%, rgba(40,52,44,0.92), rgba(10,16,13,0.95));
-      border: 2px solid rgba(255,210,127,0.5);
-      color: #ffd27f; font-size: 34px; line-height: 1; user-select: none;
-      box-shadow: 0 4px 16px rgba(0,0,0,0.5), 0 0 16px rgba(255,210,127,0.2);
-      touch-action: none; transition: transform 0.09s ease;
-    `;
-    const fire = (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      _jumpQueued = true;
-      jumpBtn.style.transform = 'scale(0.9)';
-      setTimeout(() => { jumpBtn.style.transform = ''; }, 90);
+    const mkBtn = (id, glyph, label, css) => {
+      const b = document.createElement('div');
+      b.id = id;
+      b.textContent = glyph;
+      b.setAttribute('aria-label', label);
+      b.setAttribute('data-kk-touch-btn', '1');
+      b.style.cssText = `position: fixed; z-index: 90; ${css}
+        border-radius: 50%; display: none; align-items: center; justify-content: center;
+        background: radial-gradient(circle at 50% 35%, rgba(40,52,44,0.92), rgba(10,16,13,0.95));
+        border: 2px solid rgba(255,210,127,0.5); color: #ffd27f; line-height: 1;
+        user-select: none; touch-action: none;
+        transition: transform 0.09s ease, opacity 0.12s ease, filter 0.12s ease;`;
+      document.body.appendChild(b);
+      return b;
     };
-    jumpBtn.addEventListener('touchstart', fire, { passive: false });
-    document.body.appendChild(jumpBtn);
+    const dashBtn   = mkBtn('kk-touch-dash',   '»', 'Dash',
+      'right: 24px; bottom: 28px; width: 84px; height: 84px; font-size: 40px;');
+    const activeBtn = mkBtn('kk-touch-active', '✸', 'Active ability',
+      'right: 36px; bottom: 130px; width: 68px; height: 68px; font-size: 30px;');
+    const press = (btn, fn) => {
+      const onStart = (e) => { e.preventDefault(); e.stopPropagation(); fn(true);  btn.style.transform = 'scale(0.9)'; };
+      const onEnd   = (e) => { if (e) { e.preventDefault(); e.stopPropagation(); } fn(false); btn.style.transform = ''; };
+      btn.addEventListener('touchstart',  onStart, { passive: false });
+      btn.addEventListener('touchend',    onEnd,   { passive: false });
+      btn.addEventListener('touchcancel', onEnd,   { passive: false });
+    };
+    press(dashBtn,   (down) => { _touchDashHeld = down; });
+    press(activeBtn, (down) => { if (down) _activeCastQueued = true; });
+    _touchBtns = { dash: dashBtn, active: activeBtn };
+    // Own rAF so visibility/cooldown dimming updates even while the game logic
+    // is paused (modal open) — that's exactly when buttons must hide.
+    const tick = () => { try { _updateTouchButtons(); } catch (_) {} requestAnimationFrame(tick); };
+    requestAnimationFrame(tick);
   }
 }
 
