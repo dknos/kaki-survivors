@@ -671,3 +671,26 @@
   outline: 2px solid rgba(255,210,127,.8);
   outline-offset: 3px;
 }
+
+/* ── Coarse pointers (phones): the menu's desktop-tuned px text reads too
+   small on a high-DPI handheld. Bump the sub-~18px text for legibility;
+   large display text (chapter name, big stat value) is fine as-is. font-size
+   only — no layout/position change — so nothing reflows out of place. ── */
+@media (pointer: coarse) {
+  .kkv2-word-sub       { font-size: 16px; }
+  .kkv2-acct-name      { font-size: 16px; }
+  .kkv2-acct-tag       { font-size: 13px; }
+  .kkv2-navitem        { font-size: 23px; }
+  .kkv2-nav-glyph      { font-size: 23px; }
+  .kkv2-nav-kbd        { font-size: 13px; }
+  .kkv2-cont-eyebrow   { font-size: 15px; }
+  .kkv2-cont-sub       { font-size: 18px; }
+  .kkv2-cont-label     { font-size: 13px; }
+  .kkv2-cont-of        { font-size: 18px; }
+  .kkv2-cont-btn       { font-size: 21px; }
+  .kkv2-cont-btn-glyph { font-size: 18px; }
+  .kkv2-cont-btn-kbd   { font-size: 13px; }
+  .kkv2-rail-eye       { font-size: 20px; }
+  .kkv2-rail-count     { font-size: 15px; }
+  .kkv2-tab            { font-size: 16px; }
+}

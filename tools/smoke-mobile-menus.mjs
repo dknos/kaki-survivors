@@ -3,10 +3,13 @@
  * MOBILE MENUS smoke — guards the portrait-phone fix.
  *
  * #ui-root lives inside #kk-stage, an aspect-capped box (overflow:hidden +
- * a load-bearing transform). On a portrait phone the stage is a thin
- * letterboxed strip (~167px tall on a 390x844 device), so a full-screen menu
- * mounted in #ui-root resolves to that strip and is clipped — the bug the
- * user hit ("game over menu doesn't work on mobile, can't see it").
+ * a load-bearing transform). #ui-root-mounted full-screen menus were clipped
+ * to it — the bug the user hit ("game over menu doesn't work on mobile").
+ *
+ * NOTE: as of the coarse-fill fix, computeStage() fills the screen on touch,
+ * so the stage no longer collapses to a strip on phones (the "stage not
+ * letterboxed here" note below now fires). The menus still mount on <body> as
+ * the durable guarantee regardless of stage size — that's what this asserts.
  *
  * Fix: the pause (options) panel + the game-over surfaces (.kk-death and the
  * endRunSummary panel) mount on document.body instead, escaping the stage.
@@ -85,8 +88,10 @@ async function main() {
       await page.goto('http://127.0.0.1:' + PORT + '/index.html?smoke=1&touch=1', { waitUntil: 'load', timeout: BOOT_TIMEOUT_MS });
       await page.waitForFunction(() => typeof window.kkStartRun === 'function' && window.kkState, null, { timeout: BOOT_TIMEOUT_MS });
 
-      // Sanity: the stage IS a letterbox strip (the trap a fixed,inset:0 child
-      // would fall into if mounted in #ui-root).
+      // Pre-fill the stage WAS a letterbox strip on touch (the trap a
+      // fixed,inset:0 child fell into if mounted in #ui-root). Post coarse-fill
+      // it fills the screen — so this just logs; the real guarantee is the
+      // body-mounted menus covering the viewport, asserted below.
       const stage = await page.evaluate(() => {
         const s = document.getElementById('kk-stage').getBoundingClientRect();
         return { h: Math.round(s.height), vh: window.innerHeight };

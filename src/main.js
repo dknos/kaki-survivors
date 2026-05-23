@@ -196,6 +196,11 @@ function computeStage() {
   const vw = window.innerWidth, vh = window.innerHeight;
   let w, h;
   if (vw / vh > MAX_ASPECT) { h = vh; w = Math.round(vh * MAX_ASPECT); }
+  // Touch/phones: MAX_ASPECT is a CAP, not a forced exact aspect — fill the
+  // screen so a 19.5:9 phone (e.g. S24 landscape = 2.167 < 2.333) doesn't get
+  // letterbox bars top/bottom (and the body-mounted HUD stays aligned to the
+  // real playfield corners). Desktop keeps its fixed 16:9 FoV unchanged.
+  else if (_coarsePointer) { w = vw; h = vh; }
   else { w = vw; h = Math.round(vw / MAX_ASPECT); }
   stage.style.width = w + 'px';
   stage.style.height = h + 'px';
@@ -530,9 +535,13 @@ async function boot() {
   // Font scale CSS var.
   try {
     if (typeof document !== 'undefined' && document.documentElement) {
-      const fs = Number(meta.optFontScale);
+      let fs = Number(meta.optFontScale);
+      if (!Number.isFinite(fs)) fs = 1;
+      // Coarse pointers (phones) read small — bump the base when the user hasn't
+      // set a custom scale. An explicit choice (!= 1.0) is respected as-is.
+      if (_coarsePointer && fs === 1) fs = 1.2;
       document.documentElement.style.setProperty('--kk-font-scale',
-        Number.isFinite(fs) ? String(Math.max(0.6, Math.min(1.6, fs))) : '1');
+        String(Math.max(0.6, Math.min(1.6, fs))));
     }
   } catch (_) {}
   // Visibility / focus handling — suspend the audio context when the tab is
