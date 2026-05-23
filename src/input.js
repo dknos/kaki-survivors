@@ -5,6 +5,7 @@
 import * as THREE from 'three';
 import { state } from './state.js';
 import { initGamepad, pollGamepad, gamepadState, gamepadHasActivity } from './gamepad.js';
+import { getMeta } from './meta.js';
 
 // ── Active input device tracking ─────────────────────────────────────────────
 // Other systems (HUD prompts, etc.) read input.activeDevice to swap key/button
@@ -28,6 +29,45 @@ const _mouse = { clientX: 0, clientY: 0, hasMoved: false };
 const _p1 = new THREE.Vector3();
 const _p2 = new THREE.Vector3();
 export function getMouseClient() { return _mouse; }
+
+// ── Primary-fire input (DMD-hybrid hold-to-fire) ──
+// _primaryHeld = LMB currently down. _lastAimMoveAt = last cursor-move time, so
+// isManualAiming() knows whether the player is actively aiming with the mouse
+// vs idle (auto-target nearest). Set by handlers in initInput().
+let _primaryHeld = false;
+let _lastAimMoveAt = 0;
+
+/** Resolve the auto-fire-primary accessibility toggle. Unset resolves by device:
+ *  ON for coarse pointer (touch), OFF for mouse — so the primary fires on its own
+ *  on phones (auto-aim) but is hold-to-fire on PC. */
+function _resolveAutoFirePrimary() {
+  let v;
+  try { v = getMeta().optAutoFirePrimary; } catch (_) { v = undefined; }
+  if (v === undefined || v === null) return isCoarsePointer();
+  return !!v;
+}
+
+/** True while the player is firing the primary: LMB held (PC), right
+ *  trigger / right-stick deflected (gamepad), or the auto-fire toggle. */
+export function isPrimaryFiring() {
+  if (_primaryHeld) return true;
+  if (gamepadState.connected) {
+    const rt = gamepadState.buttons && gamepadState.buttons.rt;
+    if (rt && rt > 0.3) return true;
+    if (Math.hypot(gamepadState.rx, gamepadState.ry) > 0.3) return true;
+  }
+  return _resolveAutoFirePrimary();
+}
+
+/** True when the player is actively aiming (mouse moved recently or right-stick
+ *  deflected) — primary aims at the cursor/stick; otherwise auto-targets nearest. */
+export function isManualAiming() {
+  if (gamepadState.connected && Math.hypot(gamepadState.rx, gamepadState.ry) > 0.3) return true;
+  // While LMB is held the cursor IS the aim point (even if still); otherwise
+  // treat a recent move as active aiming. Idle => caller auto-targets nearest.
+  if (_mouse.hasMoved && (_primaryHeld || (performance.now() - _lastAimMoveAt) < 1500)) return true;
+  return false;
+}
 
 /**
  * Project the current mouse position onto the y=0 plane in world coords.
@@ -182,9 +222,20 @@ export function initInput() {
     _mouse.clientX = e.clientX;
     _mouse.clientY = e.clientY;
     _mouse.hasMoved = true;
+    _lastAimMoveAt = performance.now();
     _kbmActivityThisFrame = true;
   }, { passive: true });
-  window.addEventListener('mousedown', () => { _kbmActivityThisFrame = true; }, { passive: true });
+  // LMB = hold-to-fire primary. Ignore presses that start on UI chrome (menu
+  // buttons, dialogs) so clicking the HUD/options never starts firing; mouseup
+  // anywhere clears the hold so it can't get stuck after a drag-off.
+  window.addEventListener('mousedown', (e) => {
+    _kbmActivityThisFrame = true;
+    if (e.button !== 0) return;
+    const onUi = e.target && e.target.closest && e.target.closest('button, [role="dialog"], [role="button"], input, a');
+    if (!onUi) _primaryHeld = true;
+  }, { passive: true });
+  window.addEventListener('mouseup', (e) => { if (e.button === 0) _primaryHeld = false; }, { passive: true });
+  window.addEventListener('blur', () => { _primaryHeld = false; });
 
   // ── Touch joystick (left half of screen) ──
   const onTouchStart = (e) => {

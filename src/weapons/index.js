@@ -12,6 +12,8 @@ import { unlockZoomLevel, getMaxZoomNotch, getZoomNotchCount } from '../input.js
 
 import orbitals from './orbitals.js';
 import autoAim, { spawnGlasswindShards, syncProjectileVisuals, flushProjectileVisuals, releaseProjectileVisuals } from './autoAim.js';
+// DMD-hybrid pivot — the always-equipped, player-aimed, hold-to-fire primary.
+import primary from './primary.js';
 import chain from './chain.js';
 import web, { tickWebs } from './web.js';
 import frostbloom from './frostbloom.js';
@@ -80,6 +82,7 @@ export { applyPassive, PASSIVES };
 export const REGISTRY = {
   [orbitals.id]:   orbitals,
   [autoAim.id]:    autoAim,
+  [primary.id]:    primary,
   [chain.id]:      chain,
   [web.id]:        web,
   [frostbloom.id]: frostbloom,
@@ -147,6 +150,19 @@ const FOREST_SPECIAL_IDS = ['sap_weaver', 'choir_lance', 'prism_warden',
 // each forest weapon is only pushed once. resetState() clears
 // `state.weapons.length = 0` between runs, so the next run starts the loop
 // fresh — no run-id bookkeeping needed.
+// DMD-hybrid: every run gets the always-equipped primary (hidden slot). Pushed
+// directly (not via acquireWeapon) to avoid reentrancy, and idempotent so the
+// repeated run-start acquires (Cellar dupes, resume, restart) never stack it.
+function _equipPrimaryForRun() {
+  if (state.weapons.find(w => w.id === 'primary')) return;
+  const mod = REGISTRY['primary'];
+  if (!mod) return;
+  const entry = { id: 'primary', level: 1, inst: {} };
+  state.weapons.push(entry);
+  try { if (mod.init) mod.init(state, mod.levels[0], entry.inst); }
+  catch (e) { console.warn('[weapons] primary init', e); }
+}
+
 function _equipForestSpecialsForRun() {
   let meta = null;
   try { meta = getMeta(); } catch (_) { meta = null; }
@@ -202,6 +218,7 @@ export function acquireWeapon(id) {
   // = level-ups, which hit the early-return branch above; level-up cards,
   // which hit either branch) are no-ops here.
   _equipForestSpecialsForRun();
+  _equipPrimaryForRun();   // DMD-hybrid: always-on primary, every run + every path
 }
 
 export function tickWeapons(dt) {

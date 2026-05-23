@@ -151,6 +151,9 @@ const DEFAULT = {
   optVfx: 1.0,
   // Mouse-aim mode (overrides nearest-enemy targeting for autoaim/volley)
   optManualAim: false,
+  // Auto-fire the hold-to-fire PRIMARY (DMD-hybrid). null = resolve by device
+  // (ON for touch, OFF for mouse); true/false once the player sets it.
+  optAutoFirePrimary: null,
   // Boss Rush mode — compressed boss-only run. Unlocks alongside Hyper/Endless.
   optBossRush: false,
   // Weekly mutator mode — opt-in for the next run. Mutually exclusive with

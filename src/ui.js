@@ -5933,6 +5933,7 @@ export function showTutorial() {
   _tutorial.innerHTML = `
     <div style="font-size:calc(var(--kk-font-scale, 1) * 18px);color:${C.cyan};text-shadow:0 0 8px ${C.cyan};letter-spacing:4px;text-align:center;margin-bottom:10px;">CONTROLS</div>
     <div><span style="color:${C.amber}">WASD / Arrows</span> &mdash; Move</div>
+    <div><span style="color:${C.amber}">Mouse</span> &mdash; Aim &nbsp;<span style="color:${C.amber}">Hold L-Click</span> &mdash; Fire primary</div>
     <div><span style="color:${C.amber}">Space</span> &mdash; Jump</div>
     <div><span style="color:${C.amber}">Shift</span> &mdash; Dash <span style="opacity:0.6">(upgrade via filler)</span></div>
     <div><span style="color:${C.amber}">Mouse wheel</span> &mdash; Zoom <span style="opacity:0.6">(unlocks via filler)</span></div>
