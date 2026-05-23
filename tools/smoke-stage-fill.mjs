@@ -87,7 +87,17 @@ async function main() {
     // Allow 2px rounding slack.
     if (Math.abs(s.h - s.vh) > 2) failures.push(`phone stage NOT full height: ${s.h} vs vh ${s.vh} (letterbox bars top/bottom)`);
     if (Math.abs(s.w - s.vw) > 2) failures.push(`phone stage NOT full width: ${s.w} vs vw ${s.vw}`);
-    console.log(`  coarse 780x360: stage ${s.w}x${s.h}  (vw=${s.vw} vh=${s.vh})`);
+    // Landscape: rotate gate must be hidden.
+    const gateLand = await page.evaluate(() => { const g = document.getElementById('kk-rotate-gate'); return g ? getComputedStyle(g).display : 'absent'; });
+    if (gateLand !== 'none') failures.push(`rotate gate not hidden in landscape (display=${gateLand})`);
+    // Rotate to portrait: gate must show + stage still fills.
+    await page.setViewportSize({ width: 360, height: 780 });
+    await page.waitForTimeout(200);
+    const sp = await readStage(page);
+    const gatePort = await page.evaluate(() => { const g = document.getElementById('kk-rotate-gate'); return g ? getComputedStyle(g).display : 'absent'; });
+    if (gatePort !== 'flex') failures.push(`rotate gate not shown in portrait (display=${gatePort})`);
+    if (Math.abs(sp.h - sp.vh) > 2) failures.push(`portrait stage NOT full height: ${sp.h} vs ${sp.vh}`);
+    console.log(`  coarse landscape 780x360: stage ${s.w}x${s.h} gate=${gateLand} | portrait 360x780: stage ${sp.w}x${sp.h} gate=${gatePort}`);
   } catch (e) {
     failures.push('phone ctx exception: ' + (e && e.message ? e.message : String(e)));
   } finally {
@@ -107,7 +117,9 @@ async function main() {
     await page2.waitForTimeout(200);
     const s2 = await readStage(page2);
     if (!(s2.h < s2.vh - 2)) failures.push(`desktop 1280x900 stage should stay 16:9-capped (h=${s2.h}, vh=${s2.vh}) — desktop FoV must not change`);
-    console.log(`  desktop 1280x900: stage ${s2.w}x${s2.h}  (vh=${s2.vh}, capped=${s2.h < s2.vh})`);
+    const gateDesk = await page2.evaluate(() => !!document.getElementById('kk-rotate-gate'));
+    if (gateDesk) failures.push('rotate gate created on desktop (should be touch-only)');
+    console.log(`  desktop 1280x900: stage ${s2.w}x${s2.h}  (capped=${s2.h < s2.vh}, gate=${gateDesk})`);
   } catch (e) {
     failures.push('desktop ctx exception: ' + (e && e.message ? e.message : String(e)));
   } finally {

@@ -206,6 +206,37 @@ function computeStage() {
   stage.style.height = h + 'px';
   return { w, h };
 }
+
+// ── Landscape gate (touch only) ──
+// The game is built for landscape; a portrait phone gives a cramped view. Show
+// a full-screen rotate prompt over everything while in portrait. (Best-effort
+// orientation lock is attempted on first gesture — Android Chrome honors it in
+// fullscreen/PWA; elsewhere it no-ops and the visual gate is the mechanism.)
+let _rotateGate = null;
+function _updateOrientationGate() {
+  if (!_coarsePointer) return;
+  if (!_rotateGate) {
+    const g = document.createElement('div');
+    g.id = 'kk-rotate-gate';
+    g.style.cssText = 'position:fixed;inset:0;z-index:99999;display:none;'
+      + 'flex-direction:column;align-items:center;justify-content:center;gap:16px;'
+      + 'background:#05060a;color:#ffd27f;text-align:center;padding:24px;'
+      + "font-family:'Cinzel',serif;";
+    g.innerHTML = '<div style="font-size:60px;line-height:1;animation:kkrot 1.8s ease-in-out infinite;">↻</div>'
+      + '<div style="font-size:22px;letter-spacing:2px;">Rotate to landscape</div>'
+      + '<div style="font-size:13px;opacity:.6;font-family:Geist,system-ui,sans-serif;">Kitty Kaki plays in landscape</div>'
+      + '<style>@keyframes kkrot{0%,100%{transform:rotate(-12deg)}50%{transform:rotate(78deg)}}</style>';
+    document.body.appendChild(g);
+    _rotateGate = g;
+  }
+  _rotateGate.style.display = (window.innerHeight > window.innerWidth) ? 'flex' : 'none';
+}
+function _tryLockLandscape() {
+  try {
+    if (screen.orientation && screen.orientation.lock) screen.orientation.lock('landscape').catch(() => {});
+  } catch (_) {}
+}
+
 let { w: W, h: H } = computeStage();
 const ASPECT = () => W / H;
 
@@ -266,7 +297,17 @@ window.addEventListener('resize', () => {
   camera.top = WORLD.cameraDistance;        camera.bottom = -WORLD.cameraDistance;
   camera.updateProjectionMatrix();
   resizeComposer(composer, bloomPass, postFXPass, W, H, bloomComposer);
+  _updateOrientationGate();
 });
+// Landscape gate: react to rotation + show on boot. Best-effort orientation
+// lock fires once on the first gesture (the API needs a user gesture/fullscreen).
+window.addEventListener('orientationchange', () => setTimeout(_updateOrientationGate, 60));
+if (_coarsePointer) {
+  _updateOrientationGate();
+  const lockOnce = () => { _tryLockLandscape(); window.removeEventListener('pointerdown', lockOnce); window.removeEventListener('touchend', lockOnce); };
+  window.addEventListener('pointerdown', lockOnce, { passive: true });
+  window.addEventListener('touchend', lockOnce, { passive: true });
+}
 
 // Render helper: bloom-only pass first (layer mask), then full scene.
 const _bgBlack = new THREE.Color(0x000000);
