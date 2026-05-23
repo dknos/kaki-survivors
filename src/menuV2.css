@@ -677,6 +677,17 @@
    large display text (chapter name, big stat value) is fine as-is. font-size
    only — no layout/position change — so nothing reflows out of place. ── */
 @media (pointer: coarse) {
+  /* The menu scene is a fixed 1920x1080 (16:9) stage scaled to FIT (see
+     menuV2.js _fitStage), so a wider phone (e.g. S24 landscape ~2.34) leaves
+     black side bars. Cover-scaling would crop the top account bar + bottom
+     PLAY card; stretching distorts the 3D hero. Instead fill the bar area with
+     a darkened cover of the room art — the framed scene reads as vignetted,
+     not black-barred. */
+  .kkv2-root {
+    background:
+      linear-gradient(rgba(6,4,3,.62), rgba(6,4,3,.82)),
+      url("../assets/sprites/menu-bg.png") center center / cover no-repeat;
+  }
   .kkv2-word-sub       { font-size: 16px; }
   .kkv2-acct-name      { font-size: 16px; }
   .kkv2-acct-tag       { font-size: 13px; }

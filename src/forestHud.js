@@ -201,6 +201,11 @@ function _ensureRoot() {
   }
   const root = document.createElement('div');
   root.id = ROOT_ID;
+  // Start hidden: the HUD only belongs in an active forest run. tickForestHud
+  // (which runs only during the run loop, via _shouldShow) reveals it. Without
+  // this it defaulted visible and bled onto the main menu (Chests/Kills/Sigils
+  // over menuV2), since the menu doesn't tick the HUD to hide it.
+  root.style.visibility = 'hidden';
 
   const clock = document.createElement('div');
   clock.id = CLOCK_ID;
@@ -241,7 +246,7 @@ function _ensureRoot() {
   _lastReaperClass = '';
   _lastKillsText = '';
   _lastChestsText = '';
-  _lastVisible = true;
+  _lastVisible = false;   // hidden by default; first in-run tick flips it visible
 }
 
 /**
@@ -417,5 +422,5 @@ export function disposeForestHud() {
   _lastReaperClass = '';
   _lastKillsText = '';
   _lastChestsText = '';
-  _lastVisible = true;
+  _lastVisible = false;   // hidden by default; first in-run tick flips it visible
 }

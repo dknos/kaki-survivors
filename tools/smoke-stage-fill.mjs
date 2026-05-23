@@ -83,6 +83,9 @@ async function main() {
   try {
     await page.goto('http://127.0.0.1:' + PORT + '/index.html?smoke=1&touch=1', { waitUntil: 'load', timeout: BOOT_TIMEOUT_MS });
     await page.waitForFunction(() => typeof window.kkStartRun === 'function' && window.kkState, null, { timeout: BOOT_TIMEOUT_MS });
+    // Forest HUD must NOT bleed onto the main menu (no run started yet).
+    const hudOnMenu = await page.evaluate(() => { const k = document.getElementById('kk-forest-hud'); return k ? getComputedStyle(k).visibility : 'absent'; });
+    if (hudOnMenu === 'visible') failures.push('forest HUD (Chests/Kills/Sigils) visible on the main menu before a run started');
     const s = await readStage(page);
     // Allow 2px rounding slack.
     if (Math.abs(s.h - s.vh) > 2) failures.push(`phone stage NOT full height: ${s.h} vs vh ${s.vh} (letterbox bars top/bottom)`);
