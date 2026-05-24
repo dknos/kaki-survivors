@@ -76,6 +76,9 @@ import chainStorm   from './chainStorm.js';
 import frostEternal from './frostEternal.js';
 import { getMeta } from '../meta.js';
 import { passiveChoices, applyPassive, PASSIVES } from './passives.js';
+// Leveling simplification (2026-05-24): WEAPON cards are restricted to the
+// current run's archetype kit + the selected avatar's signature weapon.
+import { kitForRun } from './kits.js';
 // PHASE 4 P4J (#140) — Telemetry weapon_take + weapon_evolve hooks. Called
 // from acquireWeapon (first-pickup branch only) and applyEvolution.
 import { event as telemetryEvent } from '../telemetry.js';
@@ -202,7 +205,11 @@ export function acquireWeapon(id) {
     existing.level += 1;
     const level = mod.levels[existing.level - 1];
     if (mod.refresh) mod.refresh(state, level, existing.inst);
-    _announceEligibleEvolutions();   // hitting maxLevel may unlock the evo
+    // Leveling simplification (2026-05-24): reaching maxLevel is the sole
+    // evolution trigger. _announceEligibleEvolutions() fires the banner first,
+    // then we auto-apply the evolution immediately (no draft card, no recipe).
+    _announceEligibleEvolutions();
+    if (existing.level >= mod.maxLevel) _tryAutoEvolve(id);
     return;
   }
   const entry = { id, level: 1, inst: {} };
@@ -324,23 +331,22 @@ const FILLERS = [
 ];
 
 export function weaponChoices(n) {
-  const ids = Object.keys(REGISTRY);
+  // Leveling simplification (2026-05-24): only offer WEAPON cards from the
+  // current run's archetype kit + the selected avatar's signature weapon
+  // (instead of pooling every non-hidden weapon). kitForRun() always returns a
+  // non-empty list (falls back to all base weapons) so the pool can't starve.
+  // Evolution cards are no longer emitted — weapons auto-evolve at maxLevel in
+  // acquireWeapon (see #2/#3 of the redesign).
+  const ids = kitForRun(state.run);
   const owned = new Map(state.weapons.map(w => [w.id, w]));
   const pool = [];
 
-  // 1) Evolutions: highest priority. Show as 'evolution' kind.
-  for (const baseId of Object.keys(EVOLUTIONS)) {
-    if (_isEvolutionEligible(baseId)) {
-      const evo = EVOLUTIONS[baseId];
-      pool.push({
-        kind: 'evolution', id: baseId, level: 'EVO',
-        name: evo.name, icon: evo.icon, desc: evo.desc,
-      });
-    }
-  }
-
   for (const id of ids) {
     const mod = REGISTRY[id];
+    // Defensive: a kit/signature id with no registered module (e.g. a Phase-F
+    // pending signature weapon) can't be drafted — skip it so it never becomes
+    // an undraftable card or crashes the maxLevel lookup below.
+    if (!mod) continue;
     // FE-C1B: hidden weapons (Forest specials, slot 5) never appear in the
     // level-up card pool — they're equipped automatically per meta unlock.
     if (mod && mod.hidden) continue;
@@ -374,7 +380,7 @@ export function weaponChoices(n) {
     for (const c of activeChoices()) pool.push(c);
   } catch (_) {}
 
-  // Shuffle the full pool (weapons + passives + evolutions).
+  // Shuffle the full pool (weapons + passives + active ability).
   for (let i = pool.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
     const tmp = pool[i]; pool[i] = pool[j]; pool[j] = tmp;
@@ -415,6 +421,10 @@ export function applyFiller(choice) {
     case 'dash':
       h.dashUnlocked = true;
       h.dashLevel = Math.min((h.dashLevel || 0) + 1, 5);
+      // Dash isn't a REGISTRY weapon, so acquireWeapon never sees it. Auto-
+      // evolve here once dashLevel maxes (5). _tryAutoEvolve is idempotent via
+      // _isEvolutionEligible's dashEvolved guard.
+      if (h.dashLevel >= 5) _tryAutoEvolve('dash');
       break;
   }
   // Track the pick for evolution eligibility
@@ -438,7 +448,7 @@ function _announceEligibleEvolutions() {
       // Persist this evolution as discovered in the meta Grimoire
       import('../meta.js').then(({ discoverEvolution }) => discoverEvolution(evo.id));
       import('../ui.js').then(({ showBanner }) => {
-        showBanner(`★ EVOLUTION READY: ${evo.name.toUpperCase()}`, 3.5, '#ffe14a');
+        showBanner(`★ EVOLVED: ${evo.name.toUpperCase()}`, 3.5, '#ffe14a');
       });
       state.fx.bloomBoost = 1.0;
     }
@@ -496,13 +506,13 @@ function _isEvolutionEligible(weaponId) {
   const req = evo.requires || {};
 
   // Dash evolution: not a REGISTRY weapon — check run-state directly.
+  // Leveling simplification (2026-05-24): maxing dashLevel is the sole trigger;
+  // the miniBossKills recipe gate is dropped. dashEvolved keeps it idempotent.
   if (weaponId === 'dash') {
     const h = state.hero;
     if (!h.dashUnlocked) return false;
     if (h.dashEvolved) return false;
     if ((h.dashLevel || 0) < (req.dashLevel || 0)) return false;
-    const kills = (state.run && state.run.miniBossKills) || 0;
-    if (kills < (req.miniBossKills || 0)) return false;
     return true;
   }
 
@@ -512,16 +522,24 @@ function _isEvolutionEligible(weaponId) {
   if (!mod || owned.level < mod.maxLevel) return false;
   if (owned.inst && owned.inst.evolved) return false; // already done
 
-  if (req.filler) {
-    const have = (state.hero.fillerCounts && state.hero.fillerCounts[req.filler]) || 0;
-    if (have < (req.count || 1)) return false;
-  }
-  if (req.passive) {
-    const passives = state.passives || [];
-    const havePassive = passives.find(p => p.id === req.passive);
-    if (!havePassive || havePassive.level < (req.passiveLevel || 1)) return false;
-  }
+  // Leveling simplification (2026-05-24): the old recipe gates (req.filler
+  // picked N×, req.passive owned) are intentionally dropped — reaching maxLevel
+  // is now the sole evolution trigger.
   return true;
+}
+
+/**
+ * Auto-evolve hook (leveling simplification, 2026-05-24). Called the moment a
+ * weapon (or dash) reaches its max level. If an evolution exists and the
+ * weapon is eligible (now: maxLevel reached + not already evolved — recipe
+ * gates dropped), apply it immediately. Idempotent: _isEvolutionEligible
+ * returns false once `inst.evolved` / `dashEvolved` is set, and applyEvolution
+ * also no-ops on a second call.
+ */
+function _tryAutoEvolve(weaponId) {
+  if (!EVOLUTIONS[weaponId]) return;
+  if (!_isEvolutionEligible(weaponId)) return;
+  applyEvolution(weaponId);
 }
 
 export function applyEvolution(weaponId) {

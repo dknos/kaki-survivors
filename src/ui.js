@@ -308,12 +308,6 @@ function injectCSS() {
         0 0 22px rgba(255,210,127,0.28);
       outline: none;
     }
-    .kk-card-num {
-      font-family: ${F.display};
-      font-size: calc(var(--kk-font-scale, 1) * 11px); color: ${C.amber};
-      margin-bottom: 4px; letter-spacing: 0.32em;
-      opacity: 0.8;
-    }
     .kk-card-icon {
       font-size: calc(var(--kk-font-scale, 1) * 60px); line-height: 1; margin: 6px 0 10px;
       filter: drop-shadow(0 4px 10px rgba(0,0,0,0.5));
@@ -1485,35 +1479,24 @@ function paintCards(row, choices, registry) {
   row.innerHTML = '';
   choices.forEach((choice, i) => {
     const entry = (registry && registry[choice.id]) || {};
-    // Filler/evolution choices carry their own name/desc/icon on the choice object.
+    // Filler choices carry their own name/desc/icon on the choice object;
+    // weapon choices may lack them, so fall back to the REGISTRY entry.
     const icon = choice.icon || entry.icon || '★';
     const name = choice.name || entry.name || choice.id || 'Unknown';
     const desc = choice.desc || entry.desc || (choice.kind === 'passive' ? 'Passive bonus' : 'Weapon');
-    const lvl = choice.level || 1;
 
     const card = document.createElement('button');
     card.className = 'kk-card';
     card.type = 'button';
-    if (choice.kind === 'evolution') {
-      // Make evolution cards visually distinct — gold border, "EVOLVE" tag
-      card.style.borderColor = C.amber;
-      card.style.boxShadow = `0 0 18px ${C.amber}, 0 0 32px ${C.amber}`;
-    } else if (choice.kind === 'passive') {
-      // Passives get a cyan accent so they read as a distinct slot type.
-      card.style.borderColor = C.cyan;
-      card.style.boxShadow = `0 1px 0 rgba(255,255,255,0.04) inset, 0 12px 26px rgba(0,0,0,0.55), 0 0 18px rgba(127,255,228,0.18)`;
-    } else if (choice.kind === 'active') {
-      // Active abilities read as a distinct slot (amber, like a key cast).
-      card.style.borderColor = C.amber;
-      card.style.boxShadow = `0 1px 0 rgba(255,255,255,0.04) inset, 0 12px 26px rgba(0,0,0,0.55), 0 0 18px rgba(255,210,127,0.20)`;
-    }
-    const levelLine =
-      choice.kind === 'evolution' ? `<div class="kk-card-level" style="color:${C.amber}">★ EVOLUTION ★</div>` :
-      choice.kind === 'passive'   ? `<div class="kk-card-level" style="color:${C.cyan}">PASSIVE · LV ${lvl}</div>` :
-      choice.kind === 'active'    ? `<div class="kk-card-level" style="color:${C.amber}">⚡ ACTIVE · LV ${lvl}</div>` :
-                                    `<div class="kk-card-level">Lv ${lvl}</div>`;
+    // Unified card chrome: every card uses the same .kk-card frame regardless
+    // of `kind` (no per-kind border colors / glows / badges). Render only
+    // icon + name + description, plus a small level pip when `level` is a
+    // number. This makes weapon / filler / passive / active cards read as ONE
+    // consistent system instead of several visually-distinct ones.
+    const levelLine = (typeof choice.level === 'number')
+      ? `<div class="kk-card-level">Lv ${choice.level}</div>`
+      : '';
     card.innerHTML = `
-      <div class="kk-card-num">[${i + 1}]</div>
       <div class="kk-card-icon">${icon}</div>
       <div class="kk-card-name">${escapeHtml(name)}</div>
       ${levelLine}
