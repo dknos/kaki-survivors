@@ -97,15 +97,20 @@ export default {
   desc: 'Arcs between nearby enemies',
   icon: '⚡',
   maxLevel: 8,
+  // BULLET-HELL pass: cooldowns cut ~40% so arcs fire roughly twice as often,
+  // and chain counts bumped (monotonic) so each volley webs more of the horde.
+  // Note: each arc has a 35% branch-fork chance (extra chainFx draws), so the
+  // chain bump is kept moderate (+2 over baseline) — the dominant feel-lever
+  // here is the faster cadence, not the chain depth.
   levels: [
-    { cooldown: 1.40, dmg: 18, chains: 1, chainRadius: 5.0, falloff: 0.7 },
-    { cooldown: 1.30, dmg: 24, chains: 2, chainRadius: 5.5, falloff: 0.75 },
-    { cooldown: 1.20, dmg: 32, chains: 3, chainRadius: 6.0, falloff: 0.78 },
-    { cooldown: 1.10, dmg: 44, chains: 4, chainRadius: 6.5, falloff: 0.80 },
-    { cooldown: 1.00, dmg: 58, chains: 5, chainRadius: 7.0, falloff: 0.82 },
-    { cooldown: 0.90, dmg: 76, chains: 6, chainRadius: 7.5, falloff: 0.85 },
-    { cooldown: 0.80, dmg: 96, chains: 7, chainRadius: 8.0, falloff: 0.88 },
-    { cooldown: 0.70, dmg: 120,chains: 8, chainRadius: 9.0, falloff: 0.90 },
+    { cooldown: 0.85, dmg: 18, chains: 2, chainRadius: 5.0, falloff: 0.7 },
+    { cooldown: 0.78, dmg: 24, chains: 3, chainRadius: 5.5, falloff: 0.75 },
+    { cooldown: 0.72, dmg: 32, chains: 4, chainRadius: 6.0, falloff: 0.78 },
+    { cooldown: 0.66, dmg: 44, chains: 5, chainRadius: 6.5, falloff: 0.80 },
+    { cooldown: 0.60, dmg: 58, chains: 6, chainRadius: 7.0, falloff: 0.82 },
+    { cooldown: 0.54, dmg: 76, chains: 7, chainRadius: 7.5, falloff: 0.85 },
+    { cooldown: 0.48, dmg: 96, chains: 8, chainRadius: 8.0, falloff: 0.88 },
+    { cooldown: 0.42, dmg: 120,chains: 10, chainRadius: 9.0, falloff: 0.90 },
   ],
 
   init(state, level, inst) { inst.cd = 0.3; },

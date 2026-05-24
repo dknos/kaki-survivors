@@ -103,15 +103,19 @@ export default {
   desc: 'Drops a sigil at your feet; it pulses, then detonates with a stunning blast',
   icon: '🔔',
   maxLevel: 8,
+  // BULLET-HELL pass: cooldowns cut ~40% so sigils drop and detonate far more
+  // often, and maxSigils raised modestly (monotonic, capped at 8 — each live
+  // sigil updates its mesh per-frame and detonations call queryRadius, so the
+  // ceiling keeps that cost bounded on mobile). radius/dmg left as tuned.
   levels: [
-    { cooldown: 3.0, radius: 2.5, dmg: 12, maxSigils: 3 },
-    { cooldown: 2.7, radius: 2.9, dmg: 18, maxSigils: 3 },
-    { cooldown: 2.4, radius: 3.2, dmg: 25, maxSigils: 4 },
-    { cooldown: 2.1, radius: 3.6, dmg: 33, maxSigils: 4 },
-    { cooldown: 1.8, radius: 4.0, dmg: 41, maxSigils: 5 },
-    { cooldown: 1.5, radius: 4.4, dmg: 49, maxSigils: 5 },
-    { cooldown: 1.25, radius: 4.7, dmg: 57, maxSigils: 6 },
-    { cooldown: 1.0, radius: 5.0, dmg: 65, maxSigils: 6 },
+    { cooldown: 1.8, radius: 2.5, dmg: 12, maxSigils: 4 },
+    { cooldown: 1.6, radius: 2.9, dmg: 18, maxSigils: 4 },
+    { cooldown: 1.45, radius: 3.2, dmg: 25, maxSigils: 5 },
+    { cooldown: 1.25, radius: 3.6, dmg: 33, maxSigils: 5 },
+    { cooldown: 1.1, radius: 4.0, dmg: 41, maxSigils: 6 },
+    { cooldown: 0.9, radius: 4.4, dmg: 49, maxSigils: 6 },
+    { cooldown: 0.75, radius: 4.7, dmg: 57, maxSigils: 7 },
+    { cooldown: 0.6, radius: 5.0, dmg: 65, maxSigils: 8 },
   ],
 
   init(state, level, inst) {

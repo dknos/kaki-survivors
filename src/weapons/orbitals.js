@@ -271,15 +271,20 @@ export default {
   desc: 'Sacred cheeseburgers orbit you, smashing what they touch',
   icon: '🍔',
   maxLevel: 8,
+  // BULLET-HELL pass: per-level orb count raised (monotonic, capped at 8 to
+  // keep the per-frame queryRadius-per-orb cost bounded on mobile) and
+  // dmgInterval cut ~35-45% so the ring chews faster. radius/rotSpeed left as
+  // tuned. Each orb still does ONE queryRadius/frame — count is the only knob
+  // that scales that cost, hence the 8-orb ceiling.
   levels: [
-    { count: 2, dmg: 8,  radius: 2.5, rotSpeed: 2.4, dmgInterval: 0.5 },
-    { count: 3, dmg: 10, radius: 2.6, rotSpeed: 2.6, dmgInterval: 0.45 },
-    { count: 3, dmg: 13, radius: 2.8, rotSpeed: 2.8, dmgInterval: 0.4 },
-    { count: 4, dmg: 16, radius: 3.0, rotSpeed: 2.9, dmgInterval: 0.4 },
-    { count: 4, dmg: 20, radius: 3.2, rotSpeed: 3.0, dmgInterval: 0.35 },
-    { count: 5, dmg: 25, radius: 3.4, rotSpeed: 3.0, dmgInterval: 0.3 },
-    { count: 5, dmg: 32, radius: 3.6, rotSpeed: 3.2, dmgInterval: 0.3 },
-    { count: 6, dmg: 40, radius: 3.8, rotSpeed: 3.4, dmgInterval: 0.25 },
+    { count: 3, dmg: 8,  radius: 2.5, rotSpeed: 2.4, dmgInterval: 0.30 },
+    { count: 4, dmg: 10, radius: 2.6, rotSpeed: 2.6, dmgInterval: 0.28 },
+    { count: 4, dmg: 13, radius: 2.8, rotSpeed: 2.8, dmgInterval: 0.25 },
+    { count: 5, dmg: 16, radius: 3.0, rotSpeed: 2.9, dmgInterval: 0.24 },
+    { count: 6, dmg: 20, radius: 3.2, rotSpeed: 3.0, dmgInterval: 0.22 },
+    { count: 6, dmg: 25, radius: 3.4, rotSpeed: 3.0, dmgInterval: 0.18 },
+    { count: 7, dmg: 32, radius: 3.6, rotSpeed: 3.2, dmgInterval: 0.16 },
+    { count: 8, dmg: 40, radius: 3.8, rotSpeed: 3.4, dmgInterval: 0.15 },
   ],
 
   init(state, level, inst) {

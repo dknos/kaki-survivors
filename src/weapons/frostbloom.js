@@ -63,15 +63,19 @@ export default {
   desc: 'A frost aura pulses outward, freezing enemies and raising the damage they take',
   icon: '❄️',
   maxLevel: 8,
+  // BULLET-HELL pass: cooldowns cut ~40% so the freeze pulse fires far more
+  // often, locking down the denser horde. radius/freezeDur/dmg left as tuned —
+  // the freeze is crowd-control, not the screen-fill lever, and it's already
+  // one queryRadius per pulse. RING_COUNT stays 3 (staggered visual only).
   levels: [
-    { cooldown: 4.0, radius: 4.0, freezeDur: 1.0, dmg: 6  },
-    { cooldown: 3.6, radius: 4.7, freezeDur: 1.15, dmg: 9  },
-    { cooldown: 3.2, radius: 5.4, freezeDur: 1.25, dmg: 13 },
-    { cooldown: 2.8, radius: 6.1, freezeDur: 1.4, dmg: 17 },
-    { cooldown: 2.4, radius: 6.8, freezeDur: 1.55, dmg: 22 },
-    { cooldown: 2.0, radius: 7.5, freezeDur: 1.7, dmg: 27 },
-    { cooldown: 1.75, radius: 8.2, freezeDur: 1.85, dmg: 31 },
-    { cooldown: 1.5, radius: 9.0, freezeDur: 2.0, dmg: 35 },
+    { cooldown: 2.4, radius: 4.0, freezeDur: 1.0, dmg: 6  },
+    { cooldown: 2.2, radius: 4.7, freezeDur: 1.15, dmg: 9  },
+    { cooldown: 1.9, radius: 5.4, freezeDur: 1.25, dmg: 13 },
+    { cooldown: 1.7, radius: 6.1, freezeDur: 1.4, dmg: 17 },
+    { cooldown: 1.45, radius: 6.8, freezeDur: 1.55, dmg: 22 },
+    { cooldown: 1.2, radius: 7.5, freezeDur: 1.7, dmg: 27 },
+    { cooldown: 1.05, radius: 8.2, freezeDur: 1.85, dmg: 31 },
+    { cooldown: 0.9, radius: 9.0, freezeDur: 2.0, dmg: 35 },
   ],
 
   init(state, level, inst) {

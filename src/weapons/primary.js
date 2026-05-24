@@ -69,10 +69,16 @@ const primary = {
   id: 'primary',
   hidden: true,        // never appears in the level-up draft pool
   maxLevel: 1,         // single base level; scales via global passives (statMul)
-  // Base scaling shared by all archetypes. Held-fire centerpiece, so it out-DPSes
-  // a single auto weapon by design (Iter E balances against spawn rate).
+  // BULLET-HELL pass: base damage dialed back 9 → 6 (~33%) so the aimed
+  // hold-to-fire primary becomes optional flavor rather than mandatory DPS —
+  // the AUTO weapons (now firing far faster, screen-filling) carry the run.
+  // Cut applied to the shared base dmg so it scales uniformly across every
+  // archetype profile (PROFILES.dmgMul varies 0.72–2.20; touching the base is
+  // cleaner than retuning all six). cooldown/speed/pierce/count unchanged so
+  // the weapon's feel + contract are intact — it's still the centerpiece for a
+  // player who chooses to aim, just no longer out-DPSing a stack of autos.
   levels: [
-    { cooldown: 0.30, speed: 21, dmg: 9, ttl: 0.95, pierce: 1, count: 1 },
+    { cooldown: 0.30, speed: 21, dmg: 6, ttl: 0.95, pierce: 1, count: 1 },
   ],
 
   init(state, level, inst) {

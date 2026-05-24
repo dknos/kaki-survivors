@@ -79,7 +79,14 @@ const _glowFlat = new THREE.Quaternion().setFromEuler(new THREE.Euler(-Math.PI /
 // Per-slot rotation+scale matrix is baked at attach time; per-frame sync just
 // rewrites the translation portion via Matrix4.setPosition().
 // ─────────────────────────────────────────────────────────────────────────────
-const CAP_PROJ = 256;
+// Bullet-hell tuning — pool raised 256 → 512 so the denser auto-fire flood
+// (cut cooldowns + higher per-volley counts below, plus glasswind shard splits
+// and the held primary) never exhausts free slots. Overflow silently sets
+// proj._slot=-1 → invisible-but-live projectiles, which defeats the
+// screen-fill goal. 512 leaves comfortable margin; still 6 draws total (the
+// InstancedMesh batching is untouched), so the GPU cost is per-instance, not
+// per-draw. Two banks (normal + ice) of 512 each.
+const CAP_PROJ = 512;
 let _projInst = null;          // { haloN, coreN, trailN, haloI, coreI, trailI }
 const _freeN = [];
 const _freeI = [];
@@ -303,14 +310,19 @@ export default {
     // cap each level's max travel under 22u to keep projectiles within the
     // visible play area. Damage trimmed ~30% so the auto-aim doesn't trivialize
     // mid-tier mobs while the player is still levelling other weapons.
-    { cooldown: 1.00, speed: 16, dmg:  8, ttl: 1.10, pierce: 1, count: 1 },
-    { cooldown: 0.85, speed: 17, dmg: 11, ttl: 1.15, pierce: 1, count: 1 },
-    { cooldown: 0.75, speed: 18, dmg: 15, ttl: 1.20, pierce: 2, count: 1 },
-    { cooldown: 0.65, speed: 19, dmg: 21, ttl: 1.20, pierce: 2, count: 2 },
-    { cooldown: 0.55, speed: 20, dmg: 28, ttl: 1.20, pierce: 3, count: 2 },
-    { cooldown: 0.50, speed: 21, dmg: 38, ttl: 1.20, pierce: 3, count: 3 },
-    { cooldown: 0.45, speed: 22, dmg: 50, ttl: 1.20, pierce: 4, count: 3 },
-    { cooldown: 0.40, speed: 22, dmg: 63, ttl: 1.20, pierce: 4, count: 4 },
+    // BULLET-HELL pass: cooldowns cut ~38-45% and per-volley counts roughly
+    // doubled (monotonic) so 3-4 equipped autos visibly fill the screen with
+    // the player's bolts by mid-run. Damage left as-is — DPS rises with rate,
+    // not per-bolt, so per-hit feel stays the same. Range cap (speed×ttl<22u)
+    // unchanged.
+    { cooldown: 0.60, speed: 16, dmg:  8, ttl: 1.10, pierce: 1, count: 2 },
+    { cooldown: 0.52, speed: 17, dmg: 11, ttl: 1.15, pierce: 1, count: 2 },
+    { cooldown: 0.45, speed: 18, dmg: 15, ttl: 1.20, pierce: 2, count: 3 },
+    { cooldown: 0.38, speed: 19, dmg: 21, ttl: 1.20, pierce: 2, count: 3 },
+    { cooldown: 0.32, speed: 20, dmg: 28, ttl: 1.20, pierce: 3, count: 4 },
+    { cooldown: 0.28, speed: 21, dmg: 38, ttl: 1.20, pierce: 3, count: 5 },
+    { cooldown: 0.25, speed: 22, dmg: 50, ttl: 1.20, pierce: 4, count: 5 },
+    { cooldown: 0.22, speed: 22, dmg: 63, ttl: 1.20, pierce: 4, count: 6 },
   ],
 
   init(state, level, inst) {

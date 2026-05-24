@@ -10,7 +10,13 @@ import { tex } from '../particleTextures.js';
 import { sfx } from '../audio.js';
 import { queryRadius } from '../enemies.js';
 
-const WEB_CAP = 24;
+// BULLET-HELL pass: cap raised 24 → 48. Cooldowns below are cut ~40%, so with
+// 5-7s durations far more webs are live at once; at the old cap the spawn path
+// would `list.shift()` and silently retire still-active webs. Still ONE draw
+// call (the InstancedMesh batching is untouched) — only the instance count
+// rises. 48 covers worst-case (1.0s cd × 7s duration = 7 concurrent base, more
+// with duration statMul) with margin.
+const WEB_CAP = 48;
 const WEB_Y = 0.05;
 
 const _m4 = new THREE.Matrix4();
@@ -176,15 +182,18 @@ export default {
   desc: 'Drops slowing webs at your feet',
   icon: '🕸',
   maxLevel: 8,
+  // BULLET-HELL pass: cooldowns cut ~40% so the hero lays a near-continuous
+  // carpet of slow-webs. duration/radius/slowMul left as tuned (slow stacking
+  // is already strong). WEB_CAP raised above to hold the denser web set.
   levels: [
-    { cooldown: 3.5, duration: 5.0, radius: 3.5, slowMul: 0.50 },
-    { cooldown: 3.2, duration: 5.0, radius: 3.8, slowMul: 0.45 },
-    { cooldown: 3.0, duration: 5.5, radius: 4.0, slowMul: 0.42 },
-    { cooldown: 2.7, duration: 5.5, radius: 4.3, slowMul: 0.38 },
-    { cooldown: 2.5, duration: 6.0, radius: 4.6, slowMul: 0.35 },
-    { cooldown: 2.2, duration: 6.0, radius: 4.9, slowMul: 0.32 },
-    { cooldown: 2.0, duration: 6.5, radius: 5.2, slowMul: 0.28 },
-    { cooldown: 1.7, duration: 7.0, radius: 5.6, slowMul: 0.25 },
+    { cooldown: 2.1, duration: 5.0, radius: 3.5, slowMul: 0.50 },
+    { cooldown: 1.9, duration: 5.0, radius: 3.8, slowMul: 0.45 },
+    { cooldown: 1.8, duration: 5.5, radius: 4.0, slowMul: 0.42 },
+    { cooldown: 1.6, duration: 5.5, radius: 4.3, slowMul: 0.38 },
+    { cooldown: 1.5, duration: 6.0, radius: 4.6, slowMul: 0.35 },
+    { cooldown: 1.3, duration: 6.0, radius: 4.9, slowMul: 0.32 },
+    { cooldown: 1.2, duration: 6.5, radius: 5.2, slowMul: 0.28 },
+    { cooldown: 1.0, duration: 7.0, radius: 5.6, slowMul: 0.25 },
   ],
 
   init(state, level, inst) { inst.cd = 0.4; },

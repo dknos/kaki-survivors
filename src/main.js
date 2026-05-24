@@ -498,7 +498,7 @@ async function boot() {
       ensurePool(scene, 'fx/dust_puff_v1',         96, { bypassWhenLowFx: true });
       ensurePool(scene, 'fx/aura_rings_v1',        16, { bypassWhenLowFx: false });
       ensurePool(scene, 'fx/borgir_explosion_v1',  32, { bypassWhenLowFx: false });
-      ensurePool(scene, 'enemies',                512, { bypassWhenLowFx: false });
+      ensurePool(scene, 'enemies',                640, { bypassWhenLowFx: false });
       console.log('[sprites] bootstrap ok — 4 atlases loaded, 4 pools live (hit_flash, dust_puff, aura_rings, borgir_explosion)');
       // Visibility probe: persistent looping aura at world origin so we can
       // tell "system works, triggers don't" from "system doesn't render".

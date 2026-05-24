@@ -82,9 +82,19 @@ export const SPAWN = {
   // iter 33z — alive cap trimmed 600 → 350. User report: 219 enemies →
   // 2.3M tris / frame / 41 FPS on a mid laptop GPU. The cap was sized for
   // a beefier machine; 350 keeps the swarm-survivor feel at <1.5M tris.
-  targetAliveBase: 100,
-  targetAlivePerD: 28,      // alive = base + D * perD  (was 40)
-  targetAliveCap: 350,
+  // BULLET-HELL horde pass. Density pushed primarily via RATE (faster top-up +
+  // more frequent hordes below) rather than a huge alive-count, because each
+  // alive enemy carries seek/separation/spatial-hash cost while spawn rate is
+  // cheap. HARD CEILING: the enemy sprite InstancedMesh is capped at 512 in
+  // main.js (ensurePool('enemies', 512) — a file outside this agent's scope).
+  // A horde fires hordeCount enemies on top of the current alive count, so we
+  // keep targetAliveCap + hordeCount = 390 + 80 = 470 < 512 with margin; going
+  // higher silently evicts the oldest sprites (oldest-first recycle in
+  // spritePool.spawnSprite). If the user wants alive > ~430, the main.js cap
+  // must be raised first (flagged in the report).
+  targetAliveBase: 140,     // was 100 — denser screen from the opening seconds
+  targetAlivePerD: 36,      // alive = base + D * perD  (was 28). Steeper ramp.
+  targetAliveCap: 390,      // was 350. Held under 512 sprite cap (see note above).
   difficultyRampSec: 60,    // D goes 0→1 over first 60s
   // Cap D at 1200s = 20:00. Normal runs end at 15:00 (final boss), so this
   // puts dragon-tier (minD 7) into play during the last 3 minutes pre-boss
@@ -94,11 +104,11 @@ export const SPAWN = {
   difficultyMax: 10,
   ringRadius: 22,           // spawn distance from hero (visible edge)
   ringJitter: 5,
-  hordeIntervalSec: 45,
-  hordeCount: 70,
+  hordeIntervalSec: 32,     // was 45 — horde bursts arrive more often
+  hordeCount: 80,           // was 70. Capped so cap+hordeCount = 470 < 512.
   bossIntervalSec: 300,
-  spawnBatchPerTick: 32,    // how many enemies can spawn in one director tick
-  tickIntervalSec: 0.15,
+  spawnBatchPerTick: 40,    // was 32 — faster deficit close so the swarm stays full
+  tickIntervalSec: 0.12,    // was 0.15 — top-up runs more often (≈333/sec vs 213/sec)
   // iter 33r — chest density was 10× too high after iter 33q spawn bump.
   // Periodic 75s + 30% elite drop dumped ~6-8 chests/min with the new alive
   // counts. 240s + 3% elite → ~1 chest/min (mini-boss + final boss still drop).
@@ -238,12 +248,21 @@ export const POOL_PREWARM = {
   // clone stall) so prewarm only needs to cover the first ~30 seconds of
   // spawns, not the whole run cap. The old prewarm carried ~870 cloned
   // meshes — a big chunk of resident JS + GPU memory even before play.
-  zombie: 40, goblin: 40, skeleton: 30, orc: 20, demon: 20,
-  robot: 14, mech: 8,  xeno: 14, slime: 18, giant: 3, dragon: 2,
-  spider: 28, wolf: 22, wizard: 14, ghost: 14,
-  // Forest bugs — primary forest tier, still highest counts but trimmed.
-  ant: 60, beetle: 36, ladybug: 30, grasshopper: 24, butterfly: 18,
-  bee: 18, cockroach: 24, wasp: 14, caterpillar: 8, mantis: 8,
+  //
+  // BULLET-HELL pass: the higher targetAliveBase (100 → 140) + faster top-up
+  // means a denser opening wave, so the early-game tiers are bumped ~30-40% to
+  // cover the first seconds without a clone-stall stutter. NOTE: most of these
+  // keys (zombie/goblin/ant/…) render via the 'enemies' SPRITE atlas, not these
+  // GLB pools — the GLB pool is only the fallback when a sprite slot is
+  // unavailable, so this is kept modest to respect mobile resident memory. The
+  // late/rare tiers (giant/dragon/mech/mantis/caterpillar) are left as-is; they
+  // unlock slowly and auto-grow covers them.
+  zombie: 56, goblin: 56, skeleton: 40, orc: 28, demon: 26,
+  robot: 16, mech: 8,  xeno: 16, slime: 24, giant: 3, dragon: 2,
+  spider: 36, wolf: 28, wizard: 16, ghost: 18,
+  // Forest bugs — primary forest tier, highest counts, bumped for the denser opening.
+  ant: 80, beetle: 48, ladybug: 40, grasshopper: 32, butterfly: 22,
+  bee: 22, cockroach: 32, wasp: 16, caterpillar: 8, mantis: 8,
 };
 
 export const SPATIAL = {
