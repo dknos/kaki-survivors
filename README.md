@@ -1,10 +1,10 @@
 # Kitty Kaki Survivors
 
-**▶ Play now: [dknos.github.io/kitty-kaki-survivors](https://dknos.github.io/kitty-kaki-survivors/)**
+**▶ Play now: [dknos.github.io/kaki-survivors](https://dknos.github.io/kaki-survivors/)**
 
 A Vampire-Survivors-style auto-attacking horde game built in **THREE.js** with no bundler. Slot-machine treasure chests, evolving weapons, animated bug swarms, branching meta tree, daily + weekly challenges, character signatures, and a shipped accessibility menu.
 
-[**Play Now**](https://dknos.github.io/kitty-kaki-survivors/) · [**How to Play**](how-to-play.html) · [Report a Bug](https://github.com/dknos/kitty-kaki-survivors/issues)
+[**Play Now**](https://dknos.github.io/kaki-survivors/) · [**How to Play**](how-to-play.html) · [Report a Bug](https://github.com/dknos/kaki-survivors/issues)
 
 <!-- TODO: assets/screenshot.png (1280x720) -->
 <!-- TODO: assets/demo.gif    (loop, ~3s) -->

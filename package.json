@@ -1,7 +1,7 @@
 {
-  "name": "kitty-kaki-survivors",
+  "name": "kaki-survivors",
   "version": "1.0.0",
-  "description": "**▶ Play now: [dknos.github.io/kitty-kaki-survivors](https://dknos.github.io/kitty-kaki-survivors/)**",
+  "description": "**▶ Play now: [dknos.github.io/kaki-survivors](https://dknos.github.io/kaki-survivors/)**",
   "main": "index.js",
   "directories": {
     "doc": "docs"
@@ -11,15 +11,15 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/dknos/kitty-kaki-survivors.git"
+    "url": "git+https://github.com/dknos/kaki-survivors.git"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "bugs": {
-    "url": "https://github.com/dknos/kitty-kaki-survivors/issues"
+    "url": "https://github.com/dknos/kaki-survivors/issues"
   },
-  "homepage": "https://github.com/dknos/kitty-kaki-survivors#readme",
+  "homepage": "https://github.com/dknos/kaki-survivors#readme",
   "type": "module",
   "devDependencies": {
     "pngjs": "^7.0.0"
