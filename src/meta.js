@@ -1220,6 +1220,35 @@ function migrateV1ToV2(v1) {
   return out;
 }
 
+// One-time refund for sigils spent on the 7 shop nodes removed in the
+// 2026-05-25 flatten. Original costs hard-coded since the nodes no longer
+// exist in SHOP_TREE. Idempotent via the meta.shopTreeV2 stamp; only persists
+// (saveMeta) when a refund actually happens, so fresh profiles don't trigger a
+// spurious early write. A zero-refund re-run is a harmless no-op, so the stamp
+// need only survive when it mattered.
+const _DROPPED_NODE_COSTS = {
+  'survival-4-phoenix': 18,
+  'power-3-critical-eye': 12,
+  'power-4-overdrive': 18,
+  'greed-1-magpie': 4,
+  'greed-2-lucky-charm': 7,
+  'greed-3-sigil-sense': 12,
+  'greed-4-treasure-map': 18,
+};
+function _refundFlattenedShopNodes(meta) {
+  if (!meta || meta.shopTreeV2) return;
+  let refund = 0;
+  const owned = meta.shopTree || {};
+  for (const id in _DROPPED_NODE_COSTS) {
+    if (owned[id]) refund += _DROPPED_NODE_COSTS[id];
+  }
+  meta.shopTreeV2 = true;
+  if (refund > 0) {
+    meta.sigils = (meta.sigils || 0) + refund;
+    saveMeta();   // persist now: the common v2-load path doesn't otherwise write back
+  }
+}
+
 export function loadMeta() {
   if (_data) return _data;
   // ── 1. v2 path: read current key, apply legacy mini-migrations, return.
@@ -1233,6 +1262,7 @@ export function loadMeta() {
         _data.selectedAvatar = 'sote';
         _data.selectedChar = 'kitty';
       }
+      _refundFlattenedShopNodes(_data);
       return _data;
     }
   } catch (e) {
@@ -1262,6 +1292,7 @@ export function loadMeta() {
         }
       }
       _data = v2;
+      _refundFlattenedShopNodes(_data);
       // Only write v2 AFTER successful translation. v1 stays put — rollback
       // path. saveMeta() targets SAVE_KEY (= SAVE_KEY_V2) only.
       try {
@@ -1276,6 +1307,7 @@ export function loadMeta() {
   }
   // ── 3. Fresh profile.
   _data = { ...DEFAULT };
+  _refundFlattenedShopNodes(_data);
   return _data;
 }
 
