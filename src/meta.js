@@ -1058,114 +1058,53 @@ export function sigilCount() {
   return meta.sigils || 0;
 }
 
-// ── Branching shop tree ─────────────────────────────────────────────────────
-// 3 branches × 4 tiers = 12 nodes. Each tier requires its predecessor in the
-// same branch. Costs: 4/7/12/18 per tier (≈41/branch, ≈123 for full clear).
-// Each node's effect(runState) mutates state.run.passive_* scalars at run
-// start; iter 7 plumbs the more complex flags (revives, frenzy, free chest).
+// ── Meta upgrade shop ─────────────────────────────────────────────────────
+// Flat: five single-purchase nodes, no prerequisites (was a 3-branch/4-tier
+// tree, simplified 2026-05-25). Each node's effect(runState) mutates
+// state.run.passive_* scalars at run start. Original ids are kept so prior
+// purchases stay valid; the main.js run-start applier iterates owned nodes
+// regardless of branch/tier fields, so dropping those needs no applier change.
 export const SHOP_TREE = [
-  // ── Survival ── durability + recovery
   {
-    id: 'survival-1-iron-skin', branch: 'survival', tier: 1, requires: [], cost: 4,
+    id: 'survival-1-iron-skin', cost: 4,
     name: 'Iron Skin', desc: '+5% damage reduction', icon: '🛡️',
     effect: (runState) => {
       runState.passive_dmgReduction = (runState.passive_dmgReduction || 0) + 0.05;
     },
   },
   {
-    id: 'survival-2-second-wind', branch: 'survival', tier: 2, requires: ['survival-1-iron-skin'], cost: 7,
-    name: 'Second Wind', desc: 'Free revive at 25% HP, once per run', icon: '🪽',
-    effect: (runState) => {
-      runState.passive_revives = (runState.passive_revives || 0) + 1;
-    },
-  },
-  {
-    id: 'survival-3-regeneration', branch: 'survival', tier: 3, requires: ['survival-2-second-wind'], cost: 12,
-    name: 'Regeneration', desc: '+0.5 HP/sec passive regen', icon: '🌿',
-    effect: (runState) => {
-      runState.passive_regen = (runState.passive_regen || 0) + 0.5;
-    },
-  },
-  {
-    id: 'survival-4-phoenix', branch: 'survival', tier: 4, requires: ['survival-3-regeneration'], cost: 18,
-    name: 'Phoenix', desc: 'Revives x2 per run (caps at 6 with Vault)', icon: '🔥',
-    // TODO(iter6-wire): respawn loop reads passive_revives; cap at 6 with house.vault stacks.
-    effect: (runState) => {
-      runState.passive_revives = (runState.passive_revives || 0) + 2;
-    },
-  },
-  // ── Power ── offense + cooldown
-  {
-    id: 'power-1-sharpened-edge', branch: 'power', tier: 1, requires: [], cost: 4,
+    id: 'power-1-sharpened-edge', cost: 6,
     name: 'Sharpened Edge', desc: '+8% damage', icon: '⚔️',
     effect: (runState) => {
       runState.passive_dmg = (runState.passive_dmg || 1) * 1.08;
     },
   },
   {
-    id: 'power-2-quick-hands', branch: 'power', tier: 2, requires: ['power-1-sharpened-edge'], cost: 7,
-    name: 'Quick Hands', desc: '−6% all weapon cooldown', icon: '⚡',
+    id: 'power-2-quick-hands', cost: 8,
+    name: 'Quick Hands', desc: '-6% all weapon cooldown', icon: '⚡',
     effect: (runState) => {
       runState.passive_cooldown = (runState.passive_cooldown || 1) * 0.94;
     },
   },
   {
-    id: 'power-3-critical-eye', branch: 'power', tier: 3, requires: ['power-2-quick-hands'], cost: 12,
-    name: 'Critical Eye', desc: '+15% crit chance', icon: '🎯',
+    id: 'survival-3-regeneration', cost: 10,
+    name: 'Regeneration', desc: '+0.5 HP/sec passive regen', icon: '🌿',
     effect: (runState) => {
-      runState.passive_critChance = (runState.passive_critChance || 0) + 0.15;
+      runState.passive_regen = (runState.passive_regen || 0) + 0.5;
     },
   },
   {
-    id: 'power-4-overdrive', branch: 'power', tier: 4, requires: ['power-3-critical-eye'], cost: 18,
-    name: 'Overdrive', desc: 'Every 60s: 5s frenzy (+50% atk speed, +25% dmg)', icon: '💥',
-    // TODO(iter6-wire): main loop ticks an overdrive timer when passive_overdrive=true,
-    // stacks transient multipliers onto cooldown + dmg statMul during the 5s window.
+    id: 'survival-2-second-wind', cost: 14,
+    name: 'Second Wind', desc: 'Free revive at 25% HP, once per run', icon: '🪽',
     effect: (runState) => {
-      runState.passive_overdrive = true;
-    },
-  },
-  // ── Greed ── economy + drops
-  {
-    id: 'greed-1-magpie', branch: 'greed', tier: 1, requires: [], cost: 4,
-    name: 'Magpie', desc: '+20% coin from kills', icon: '🪙',
-    effect: (runState) => {
-      runState.passive_coinMul = (runState.passive_coinMul || 0) + 0.20;
-    },
-  },
-  {
-    id: 'greed-2-lucky-charm', branch: 'greed', tier: 2, requires: ['greed-1-magpie'], cost: 7,
-    name: 'Lucky Charm', desc: '+5% chest spawn rate', icon: '🍀',
-    effect: (runState) => {
-      runState.passive_chestRate = (runState.passive_chestRate || 0) + 0.05;
-    },
-  },
-  {
-    id: 'greed-3-sigil-sense', branch: 'greed', tier: 3, requires: ['greed-2-lucky-charm'], cost: 12,
-    name: 'Sigil Sense', desc: '+1 sigil per mini-boss', icon: '🔮',
-    effect: (runState) => {
-      runState.passive_miniBossSigilBonus = (runState.passive_miniBossSigilBonus || 0) + 1;
-    },
-  },
-  {
-    id: 'greed-4-treasure-map', branch: 'greed', tier: 4, requires: ['greed-3-sigil-sense'], cost: 18,
-    name: 'Treasure Map', desc: 'Each run starts with a free chest near you', icon: '🗺',
-    // TODO(iter6-wire): chest-spawner reads passive_treasureMap at run start,
-    // drops one common chest within ~6u of the hero before enemies appear.
-    effect: (runState) => {
-      runState.passive_treasureMap = true;
+      runState.passive_revives = (runState.passive_revives || 0) + 1;
     },
   },
 ];
 
-/** True if every prerequisite for this node is owned. Tier-1 nodes always true. */
+/** Flat shop has no prerequisites: any known node id is purchasable. */
 export function nodeUnlocked(id) {
-  const meta = getMeta();
-  if (!meta.shopTree) meta.shopTree = {};
-  const node = SHOP_TREE.find(n => n.id === id);
-  if (!node) return false;
-  for (const req of node.requires) if (!meta.shopTree[req]) return false;
-  return true;
+  return SHOP_TREE.some(n => n.id === id);
 }
 
 /** True if the player owns this tree node. */

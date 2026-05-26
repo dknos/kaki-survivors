@@ -15,7 +15,7 @@ import {
   // Iter 34 — Phase E (progression redesign)
   isAvatarUnlocked, isAvatarUnlockable, spendEmbersForAvatar, AVATAR_UNLOCK_COSTS, getMastery,
 
-  SHOP_TREE, purchaseTreeNode, nodeUnlocked, nodeOwned, sigilCount,
+  SHOP_TREE, purchaseTreeNode, nodeOwned, sigilCount,
   addPreset, removePreset, listPresets, applyPreset,
   weeklyMutatorConfig,
   // Iter 10a — settings overhaul
@@ -4497,7 +4497,7 @@ export function showShop() {
   const subtitle = document.createElement('div');
   subtitle.style.cssText = `font-family: ${F.body}; font-size: calc(var(--kk-font-scale, 1) * 11px); letter-spacing: 0.32em;
     color: rgba(245,239,225,0.62); text-transform: uppercase; margin-bottom: 22px;`;
-  subtitle.textContent = 'Spend sigils on a permanent meta tree — carry between runs';
+  subtitle.textContent = 'Spend sigils on permanent upgrades — carry between runs';
 
   // Treasury (coins) + Sigil counter side-by-side in the header. Sigils are the
   // tree-shop currency; coins remain visible for context (legacy shops, codex).
@@ -4521,56 +4521,35 @@ export function showShop() {
   }
   paintCoins();
 
-  // Three-column branching tree. One column per branch, four tiers stacked.
-  // Tier-to-tier connectors (▼) live between cards inside each column.
+  // Flat upgrade list — one responsive grid of single-purchase nodes. No
+  // branches, tiers, or prerequisites (simplified 2026-05-25).
   const grid = document.createElement('div');
   grid.style.cssText = `
-    display: grid; grid-template-columns: repeat(3, minmax(240px, 1fr));
-    gap: 28px;
-    max-width: 1100px; width: 100%;
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 14px;
+    max-width: 760px; width: 100%;
     align-items: start;
   `;
 
-  // Branch metadata — header chrome only; node data comes from SHOP_TREE.
-  const BRANCH_META = {
-    survival: { name: 'Survival', icon: '🛡', tagline: 'Endure',  accent: C.cyan },
-    power:    { name: 'Power',    icon: '⚔', tagline: 'Strike',  accent: C.amber },
-    greed:    { name: 'Greed',    icon: '💰', tagline: 'Loot',    accent: SIGIL_C },
-  };
-
   function paintNode(node) {
-    const unlocked = nodeUnlocked(node.id);
     const owned = nodeOwned(node.id);
     const sigils = sigilCount();
     const affordable = sigils >= node.cost;
-    const lockedVisually = !unlocked && !owned;
-
-    // Three visual states drive the look: owned (amber, ✓), unlocked-purchasable
-    // (cyan, hover lift), unlocked-but-unaffordable (dim cyan), locked (gray).
-    const state =
-      owned ? 'owned' :
-      !unlocked ? 'locked' :
-      affordable ? 'buy' :
-      'poor';
+    // Three states: owned (amber, check), purchasable (cyan, hover lift),
+    // unaffordable (dim cyan). The flat shop never locks.
+    const state = owned ? 'owned' : affordable ? 'buy' : 'poor';
 
     const borderC =
       state === 'owned' ? C.amber :
       state === 'buy'   ? C.cyan :
-      state === 'poor'  ? 'rgba(127,255,228,0.32)' :
-                          'rgba(80,80,80,0.4)';
-    const txtC =
-      state === 'owned' ? C.text :
-      state === 'locked' ? 'rgba(120,120,120,0.65)' :
-                           C.text;
+                          'rgba(127,255,228,0.32)';
     const costC =
       state === 'owned' ? C.amber :
       state === 'buy'   ? C.cyan :
-      state === 'poor'  ? 'rgba(127,255,228,0.5)' :
-                          'rgba(120,120,120,0.55)';
-    const iconOverlay =
-      state === 'owned'  ? '<div style="position:absolute;top:8px;right:10px;font-size:calc(var(--kk-font-scale, 1) * 18px);color:'+C.amber+';text-shadow:0 1px 4px rgba(0,0,0,0.6);">✓</div>' :
-      state === 'locked' ? '<div style="position:absolute;top:8px;right:10px;font-size:calc(var(--kk-font-scale, 1) * 16px);opacity:0.75;">🔒</div>' :
-      '';
+                          'rgba(127,255,228,0.5)';
+    const iconOverlay = state === 'owned'
+      ? '<div style="position:absolute;top:8px;right:10px;font-size:calc(var(--kk-font-scale, 1) * 18px);color:' + C.amber + ';text-shadow:0 1px 4px rgba(0,0,0,0.6);">✓</div>'
+      : '';
 
     const card = document.createElement('div');
     card.style.cssText = `
@@ -4583,34 +4562,19 @@ export function showShop() {
       padding: 14px 16px;
       display: grid; grid-template-columns: 52px 1fr; gap: 12px; align-items: center;
       transition: transform 0.14s ease, border-color 0.14s ease, box-shadow 0.14s ease;
-      opacity: ${state === 'locked' ? 0.6 : 1};
     `;
 
-    // Tier pip row — one bright pip per tier earned on this node. Only owned
-    // nodes light their pips; locked/buy/poor nodes show empty placeholders.
-    const pips = Array.from({ length: 4 }, (_, i) => {
-      const lit = (i + 1 <= node.tier) && state === 'owned';
-      const accent = state === 'owned' ? C.amber : (state === 'buy' ? C.cyan : 'rgba(255,255,255,0.10)');
-      return `<span style="display:inline-block;width:12px;height:4px;border-radius:2px;background:${lit ? accent : 'rgba(255,255,255,0.10)'};"></span>`;
-    }).join('');
-
-    const tierLabel = `T${node.tier}`;
     const costLine =
-      state === 'owned'  ? 'OWNED' :
-      state === 'locked' ? 'LOCKED' :
+      state === 'owned' ? 'OWNED' :
       `✦ ${node.cost}${state === 'poor' ? ` — need ${node.cost - sigils}` : ''}`;
 
     card.innerHTML = `
       ${iconOverlay}
-      <div style="font-size:calc(var(--kk-font-scale, 1) * 34px);text-align:center;filter:drop-shadow(0 3px 6px rgba(0,0,0,0.5));opacity:${state === 'locked' ? 0.55 : 1};">${node.icon}</div>
+      <div style="font-size:calc(var(--kk-font-scale, 1) * 34px);text-align:center;filter:drop-shadow(0 3px 6px rgba(0,0,0,0.5));">${node.icon}</div>
       <div>
-        <div style="display:flex; align-items:baseline; gap:8px;">
-          <div style="font-family:${F.display};font-size:calc(var(--kk-font-scale, 1) * 14px);font-weight:700;letter-spacing:0.10em;color:${txtC};">${escapeHtml(node.name)}</div>
-          <div style="font-family:${F.mono};font-size:calc(var(--kk-font-scale, 1) * 10px);letter-spacing:0.18em;color:rgba(245,239,225,0.45);">${tierLabel}</div>
-        </div>
-        <div style="font-size:calc(var(--kk-font-scale, 1) * 11px);color:${state === 'locked' ? 'rgba(120,120,120,0.55)' : 'rgba(245,239,225,0.72)'};line-height:1.45;margin-top:3px;">${escapeHtml(node.desc)}</div>
-        <div style="display:flex;gap:3px;margin-top:7px;">${pips}</div>
-        <div style="font-family:${F.mono};font-size:calc(var(--kk-font-scale, 1) * 11px);color:${costC};margin-top:6px;letter-spacing:0.10em;">
+        <div style="font-family:${F.display};font-size:calc(var(--kk-font-scale, 1) * 14px);font-weight:700;letter-spacing:0.10em;color:${C.text};">${escapeHtml(node.name)}</div>
+        <div style="font-size:calc(var(--kk-font-scale, 1) * 11px);color:rgba(245,239,225,0.72);line-height:1.45;margin-top:3px;">${escapeHtml(node.desc)}</div>
+        <div style="font-family:${F.mono};font-size:calc(var(--kk-font-scale, 1) * 11px);color:${costC};margin-top:8px;letter-spacing:0.10em;">
           ${costLine}
         </div>
       </div>
@@ -4633,114 +4597,42 @@ export function showShop() {
           repaintGrid();
         }
       };
-    } else if (state === 'poor') {
-      card.style.cursor = 'not-allowed';
     } else {
-      card.style.cursor = 'default';
+      card.style.cursor = state === 'poor' ? 'not-allowed' : 'default';
     }
 
-    // Tooltip surfaces unlock requirements when locked, otherwise standard stats.
     bindTooltip(card, () => {
-      const branchMeta = BRANCH_META[node.branch];
       const stats = [
-        { label: 'Branch', value: branchMeta.name },
-        { label: 'Tier',   value: `${node.tier}/4` },
-        { label: 'Cost',   value: state === 'owned' ? 'OWNED' : `${node.cost} sigils` },
+        { label: 'Cost', value: state === 'owned' ? 'OWNED' : `${node.cost} sigils` },
       ];
       if (state === 'poor') stats.push({ label: 'Need', value: `${node.cost - sigils} more sigils` });
-      let bodyExtra = '';
-      if (state === 'locked') {
-        const reqNames = node.requires.map(rid => {
-          const r = SHOP_TREE.find(n => n.id === rid);
-          return r ? r.name : rid;
-        }).join(', ');
-        bodyExtra = `\n\nLocked. Requires: ${reqNames || 'none'}.`;
-      } else if (state === 'owned') {
-        bodyExtra = '\n\nPurchased — applies to every future run.';
-      } else if (state === 'buy') {
-        bodyExtra = '\n\nPermanent: applies to every future run.';
-      } else if (state === 'poor') {
-        bodyExtra = '\n\nEarn sigils from daily runs, quests, and mini-bosses.';
-      }
+      const bodyExtra =
+        state === 'owned' ? '\n\nPurchased — applies to every future run.' :
+        state === 'buy'   ? '\n\nPermanent: applies to every future run.' :
+                            '\n\nEarn sigils from daily runs, quests, and mini-bosses.';
       return {
         title: node.name,
         icon: node.icon,
         body: node.desc + bodyExtra,
-        tags: [branchMeta.name, `Tier ${node.tier}`],
         stats,
-        accent:
-          state === 'owned'  ? '#ffd27f' :
-          state === 'locked' ? '#888' :
-                               '#7fffe4',
+        accent: state === 'owned' ? '#ffd27f' : '#7fffe4',
       };
     });
     return card;
   }
 
-  // Build a branch column: header + 4 stacked nodes + ▼ connectors.
-  function paintColumn(branchId) {
-    const meta = BRANCH_META[branchId];
-    const col = document.createElement('div');
-    col.style.cssText = 'display:flex; flex-direction:column; gap:10px;';
-
-    const header = document.createElement('div');
-    header.style.cssText = `
-      text-align: center;
-      padding: 10px 12px 14px;
-      border-bottom: 1px solid ${C.edge};
-      margin-bottom: 4px;
-    `;
-    header.innerHTML = `
-      <div style="font-size:calc(var(--kk-font-scale, 1) * 28px);filter:drop-shadow(0 3px 6px rgba(0,0,0,0.55));">${meta.icon}</div>
-      <div style="font-family:${F.display}; font-size:calc(var(--kk-font-scale, 1) * 18px); font-weight:700; letter-spacing:0.20em; color:${meta.accent}; margin-top:2px;">${escapeHtml(meta.name)}</div>
-      <div style="font-family:${F.body}; font-size:calc(var(--kk-font-scale, 1) * 10.5px); letter-spacing:0.32em; text-transform:uppercase; color:rgba(245,239,225,0.55); margin-top:3px;">${escapeHtml(meta.tagline)}</div>
-    `;
-    col.appendChild(header);
-
-    const branchNodes = SHOP_TREE
-      .filter(n => n.branch === branchId)
-      .sort((a, b) => a.tier - b.tier);
-    branchNodes.forEach((node, i) => {
-      col.appendChild(paintNode(node));
-      if (i < branchNodes.length - 1) {
-        const conn = document.createElement('div');
-        const lit = nodeOwned(node.id);
-        conn.style.cssText = `text-align:center; font-family:${F.mono}; font-size:calc(var(--kk-font-scale, 1) * 16px); line-height:1;
-          color:${lit ? meta.accent : 'rgba(245,239,225,0.22)'};
-          text-shadow:${lit ? `0 0 8px ${meta.accent}55` : 'none'};
-          margin: -2px 0;`;
-        conn.textContent = '▼';
-        col.appendChild(conn);
-      }
-    });
-    return col;
-  }
-
   let _closeBtnRef = null;
   function refreshShopFocus(initialIndex = 0) {
     if (_shopFocusScope) { popFocusScope(_shopFocusScope); _shopFocusScope = null; }
-    // Collect every node card across the 3 columns in column-major order so
-    // gamepad up/down navigates within a branch column naturally.
-    const cards = [];
-    for (const col of grid.children) {
-      for (const child of col.children) {
-        // Skip the column header (first child) and connectors (▼ divs).
-        // Node cards are the only elements with cursor styling or pointer.
-        if (child.tagName === 'DIV' && child.children.length > 0 && child.style.gridTemplateColumns) {
-          cards.push(child);
-        }
-      }
-    }
-    const els = [...cards];
+    // Every direct grid child is a node card now (flat list, no headers).
+    const els = [...grid.children];
     if (_closeBtnRef) els.push(_closeBtnRef);
     _shopFocusScope = pushFocusScope(els, { layout: 'auto', onCancel: hideShop, initialIndex });
   }
   function repaintGrid() {
     const prevFocusIdx = _shopFocusScope ? _shopFocusScope.focused : 0;
     grid.innerHTML = '';
-    grid.appendChild(paintColumn('survival'));
-    grid.appendChild(paintColumn('power'));
-    grid.appendChild(paintColumn('greed'));
+    for (const node of SHOP_TREE) grid.appendChild(paintNode(node));
     if (_closeBtnRef) refreshShopFocus(prevFocusIdx);
   }
   repaintGrid();
